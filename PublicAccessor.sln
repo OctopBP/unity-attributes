@@ -4,8 +4,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublicAccessor", "PublicAcc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublicAccessor.Example", "PublicAccessor.Example\PublicAccessor.Example.csproj", "{A01713F5-F846-4C3C-A274-AC21807C67E5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublicAccessor.UnitTesting", "PublicAccessor.UnitTesting\PublicAccessor.UnitTesting.csproj", "{44CAA0C3-B25E-409C-9700-705634B66739}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,9 +18,5 @@ Global
 		{A01713F5-F846-4C3C-A274-AC21807C67E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A01713F5-F846-4C3C-A274-AC21807C67E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A01713F5-F846-4C3C-A274-AC21807C67E5}.Release|Any CPU.Build.0 = Release|Any CPU
-		{44CAA0C3-B25E-409C-9700-705634B66739}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{44CAA0C3-B25E-409C-9700-705634B66739}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{44CAA0C3-B25E-409C-9700-705634B66739}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{44CAA0C3-B25E-409C-9700-705634B66739}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
