@@ -33,7 +33,7 @@ public class CodeBuilder {
       default: throw new ArgumentOutOfRangeException(nameof(identChange), identChange, null);
     }
     
-    stringBuilder.AppendLine(identToSpaces + text);
+    stringBuilder.AppendLine(identToSpaces() + text);
     
     switch (identChange) {
       case IdentChange.None:
