@@ -65,7 +65,7 @@ public partial class PublicAccessorGenerator : ISourceGenerator {
     if (!classSymbol.ContainingNamespace.IsGlobalNamespace) {
       codeBuilder.appendLine("}", CodeBuilder.IdentChange.DecreaseBefore);
     }
-    codeBuilder.appendLine("}");
+    codeBuilder.appendLine("}", CodeBuilder.IdentChange.DecreaseBefore);
     
     return codeBuilder.getResult();
   }

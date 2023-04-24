@@ -33,7 +33,7 @@ public class CodeBuilder {
       default: throw new ArgumentOutOfRangeException(nameof(identChange), identChange, null);
     }
     
-    stringBuilder.AppendLine(identToSpaces(ident) + text);
+    stringBuilder.AppendLine(identToSpaces + text);
     
     switch (identChange) {
       case IdentChange.None:
@@ -47,10 +47,11 @@ public class CodeBuilder {
       default: throw new ArgumentOutOfRangeException(nameof(identChange), identChange, null);
     }
   
-    string identToSpaces(int n) {
+    string identToSpaces() {
+      if (ident <= 0) return string.Empty;
       var textAsSpan = Space.AsSpan();
-      var span = new Span<char>(new char[textAsSpan.Length * n]);
-      for (var idx = 0; idx < n; idx++) {
+      var span = new Span<char>(new char[textAsSpan.Length * ident]);
+      for (var idx = 0; idx < ident; idx++) {
         textAsSpan.CopyTo(span.Slice(idx * textAsSpan.Length, textAsSpan.Length));
       }
 
