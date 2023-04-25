@@ -8,7 +8,7 @@ public partial class PublicAccessorGenerator {
 
 {generatedCodeAttribute}
 [global::System.AttributeUsage(global::System.AttributeTargets.Field, Inherited = true, AllowMultiple = false)]
-internal class {AttributeName} : global::System.Attribute {{
+internal sealed class {AttributeName} : global::System.Attribute {{
   public {AttributeName}() {{ }}
 }}
 ";

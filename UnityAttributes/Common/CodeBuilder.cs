@@ -12,10 +12,10 @@ public class CodeBuilder {
     DecreaseAfter
   }
   
-  const string Space = "  ";
+  const string IndentSymbol = "  ";
   
   readonly StringBuilder stringBuilder = new();
-  int ident;
+  int indent;
 
   public void append(string text) => stringBuilder.Append(text);
   public void appendEmptyLine() => stringBuilder.AppendLine();
@@ -27,9 +27,9 @@ public class CodeBuilder {
       case IdentChange.DecreaseAfter:
         break;
       case IdentChange.IncreaseBefore:
-        ident++; break;
+        indent++; break;
       case IdentChange.DecreaseBefore:
-        ident--; break;
+        indent--; break;
       default: throw new ArgumentOutOfRangeException(nameof(identChange), identChange, null);
     }
     
@@ -41,17 +41,17 @@ public class CodeBuilder {
       case IdentChange.DecreaseBefore:
         break;
       case IdentChange.IncreaseAfter:
-        ident++; break;
+        indent++; break;
       case IdentChange.DecreaseAfter:
-        ident--; break;
+        indent--; break;
       default: throw new ArgumentOutOfRangeException(nameof(identChange), identChange, null);
     }
   
     string identToSpaces() {
-      if (ident <= 0) return string.Empty;
-      var textAsSpan = Space.AsSpan();
-      var span = new Span<char>(new char[textAsSpan.Length * ident]);
-      for (var idx = 0; idx < ident; idx++) {
+      if (indent <= 0) return string.Empty;
+      var textAsSpan = IndentSymbol.AsSpan();
+      var span = new Span<char>(new char[textAsSpan.Length * indent]);
+      for (var idx = 0; idx < indent; idx++) {
         textAsSpan.CopyTo(span.Slice(idx * textAsSpan.Length, textAsSpan.Length));
       }
 

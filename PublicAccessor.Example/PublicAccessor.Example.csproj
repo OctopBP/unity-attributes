@@ -18,9 +18,9 @@
 
     <ItemGroup>
         <ProjectReference
-                Include="..\PublicAccessor\PublicAccessor.csproj" PrivateAssets="all"
-                ReferenceOutputAssembly="false" OutputItemType="Analyzer"
-                SetTargetFramework="TargetFramework=netstandard2.0"
+            Include="..\UnityAttributes\UnityAttributes.csproj" PrivateAssets="all"
+            ReferenceOutputAssembly="false" OutputItemType="Analyzer"
+            SetTargetFramework="TargetFramework=netstandard2.0"
         />
     </ItemGroup>
 
