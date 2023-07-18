@@ -16,19 +16,19 @@ public partial class Test {
 
 public partial class Test3 {
 	[PublicAccessor] string test1;
-	// [PublicAccessor] string test2;
 }
-
-// [Record]
-public partial class RecordTest {
-	public readonly string test1;
-	public readonly int test2;
-	int test3;
-}
-
 
 public partial class Test2 {
-	public partial class NestedTest {
-		[PublicAccessor] string test;
+	public partial class Test3 {
+		public partial class NestedTest {
+			[PublicAccessor] string test;
+		}
+
+		[GenConstructor]
+		public partial class RecordTest {
+			public readonly string test1;
+			public readonly int test2;
+			int test3;
+		}
 	}
 }
