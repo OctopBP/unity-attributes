@@ -17,7 +17,10 @@ public partial class GenConstructorGenerator : ISourceGenerator
 
   public void Initialize(GeneratorInitializationContext context)
   {
-    context.RegisterForPostInitialization(i => i.AddSource($"{AttributeName}.g.cs", attributeText));
+    context.RegisterForPostInitialization(i => { 
+      i.AddSource($"{AttributeName}.g.cs", attributeText);
+      i.AddSource($"{IgnoreAttributeName}.g.cs", ignoreAttributeText);
+    });
     context.RegisterForSyntaxNotifications(() => new SyntaxReceiver());
   }
 
@@ -113,11 +116,9 @@ internal class SyntaxReceiver : ISyntaxContextReceiver
     );
     
     var haveAttribute =
-      classSymbol != null
-      && classSymbol.GetAttributes().Any(ad =>
-        ad.AttributeClass != null
-        && ad.AttributeClass.ToDisplayString() == GenConstructorGenerator.AttributeName
-      );
+      classSymbol?.GetAttributes().Any(ad =>
+        ad.AttributeClass?.ToDisplayString() == GenConstructorGenerator.AttributeName
+      ) ?? false;
     
     if (haveAttribute)
     {
@@ -126,9 +127,18 @@ internal class SyntaxReceiver : ISyntaxContextReceiver
         .OfType<FieldDeclarationSyntax>()
         .SelectMany(field => field.Declaration.Variables)
         .Select(variable => Unsafe.As<IFieldSymbol>(context.SemanticModel.GetDeclaredSymbol(variable)))
+        .Where(checkForIgnoreAttribute)
         .ToArray();
       
       classes.Add((classSymbol, fields));
+    }
+
+    return;
+
+    bool checkForIgnoreAttribute(IFieldSymbol fieldSymbol) {
+      var haveIgnoreAttribute = fieldSymbol?.GetAttributes()
+        .Any(ad => ad.AttributeClass?.ToDisplayString() == GenConstructorGenerator.IgnoreAttributeName) ?? false;
+      return !haveIgnoreAttribute;
     }
   }
 }
