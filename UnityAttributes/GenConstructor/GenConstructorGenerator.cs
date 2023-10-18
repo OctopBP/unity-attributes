@@ -128,6 +128,7 @@ internal class SyntaxReceiver : ISyntaxContextReceiver
         .SelectMany(field => field.Declaration.Variables)
         .Select(variable => Unsafe.As<IFieldSymbol>(context.SemanticModel.GetDeclaredSymbol(variable)))
         .Where(checkForIgnoreAttribute)
+        .Where(variable => !variable.IsConst)
         .ToArray();
       
       classes.Add((classSymbol, fields));
