@@ -97,7 +97,7 @@ public partial class PublicAccessorGenerator : ISourceGenerator
       codeBuilder.appendEmptyLine();
       codeBuilder.appendLine($"/// Public accessor for <see cref=\"{fieldName}\"/>");
       codeBuilder.appendLine($"/// <inheritdoc cref=\"{fieldName}\"/>");
-      codeBuilder.appendLine($"public {fieldType} _{fieldName} => {fieldName};");
+      codeBuilder.appendLine($"public {fieldType} {fieldName.upperFirstCharOrAddUnderline()} => {fieldName};");
     }
   }
 }
