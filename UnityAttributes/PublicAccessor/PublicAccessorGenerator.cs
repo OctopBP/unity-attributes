@@ -16,12 +16,12 @@ public partial class PublicAccessorGenerator : ISourceGenerator
   public void Initialize(GeneratorInitializationContext context)
   {
     context.RegisterForPostInitialization(i => i.AddSource($"{AttributeName}.g.cs", attributeText));
-    context.RegisterForSyntaxNotifications(() => new SyntaxReceiver());
+    context.RegisterForSyntaxNotifications(() => new PublicAccessorSyntaxReceiver());
   }
 
   public void Execute(GeneratorExecutionContext context)
   {
-    if (context.SyntaxContextReceiver is not SyntaxReceiver receiver)
+    if (context.SyntaxContextReceiver is not PublicAccessorSyntaxReceiver receiver)
       return;
 
     var groups = receiver.fields.GroupBy<IFieldSymbol, INamedTypeSymbol>(
@@ -102,7 +102,7 @@ public partial class PublicAccessorGenerator : ISourceGenerator
   }
 }
 
-internal class SyntaxReceiver : ISyntaxContextReceiver
+internal class PublicAccessorSyntaxReceiver : ISyntaxContextReceiver
 {
   public List<IFieldSymbol> fields { get; } = new();
 
