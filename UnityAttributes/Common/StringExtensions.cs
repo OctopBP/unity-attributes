@@ -17,6 +17,8 @@ public static class StringExtensions
         {
             null => throw new ArgumentNullException(nameof(input)),
             "" => throw new ArgumentException($"{nameof(input)} cannot be empty", nameof(input)),
-            _ => char.IsUpper(input[0]) ? "_" + input : firstCharToUpper(input)
+            _ => input[0] == '_' && input.Length > 1 && !char.IsUpper(input[1])
+                ? upperFirstCharOrAddUnderline(input.Substring(1))
+                : char.IsUpper(input[0]) ? "_" + input : firstCharToUpper(input)
         };
 }
