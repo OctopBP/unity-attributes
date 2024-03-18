@@ -9,28 +9,28 @@ namespace UnityAttributes.MonoReadonly;
 
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public class MonoReadonlyAnalyzer : DiagnosticAnalyzer {
-    static readonly string[] AllowedMethodsNames = { "Awake", "OnEnable", "Start", "Reset" };
+    private static readonly string[] allowedMethodsNames = ["Awake", "OnEnable", "Start", "Reset"];
 
-    const string DiagnosticId = "MonoReadonlyAnalyzer";
+    private const string DiagnosticId = "MonoReadonlyAnalyzer";
 
-    static readonly DiagnosticDescriptor AssignmentRule = new DiagnosticDescriptor(
+    private static readonly DiagnosticDescriptor assignmentRule = new DiagnosticDescriptor(
         DiagnosticId,
         title: "Field assignment detected",
-        messageFormat: $"Field '{{0}}' can be assigned only in {string.Join(", ", AllowedMethodsNames)} methods.",
+        messageFormat: $"Field '{{0}}' can be assigned only in {string.Join(", ", allowedMethodsNames)} methods.",
         category: "Usage",
         DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "Assignment to fields should be avoided"
+        description: "Assignment to fields should be avoided."
     );
-    
-    static readonly DiagnosticDescriptor DuplicateAssignmentRule = new DiagnosticDescriptor(
+
+    private static readonly DiagnosticDescriptor duplicateAssignmentRule = new DiagnosticDescriptor(
         DiagnosticId,
         title: "Duplicate field assignment detected",
-        messageFormat: "Field '{0}' assigned more than in one place.",
+        messageFormat: "Field '{0}' assigned more than in one place",
         category: "Usage",
         DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "Assignment duplication to fields should be avoided"
+        description: "Assignment duplication to fields should be avoided."
     );
 
     public override void Initialize(AnalysisContext context)
@@ -42,7 +42,7 @@ public class MonoReadonlyAnalyzer : DiagnosticAnalyzer {
         context.RegisterSemanticModelAction(AnalyzeAssignment);
     }
 
-    static void AnalyzeAssignment(SemanticModelAnalysisContext context)
+    private static void AnalyzeAssignment(SemanticModelAnalysisContext context)
     {
         var semanticModel = context.SemanticModel;
         var root = semanticModel.SyntaxTree.GetRoot(context.CancellationToken);
@@ -58,30 +58,35 @@ public class MonoReadonlyAnalyzer : DiagnosticAnalyzer {
             var symbol = semanticModel.GetSymbolInfo(assignmentExpression.Left).Symbol;
             
             // Check if the symbol is a property
-            if (symbol is IFieldSymbol property && property.GetAttributes().Any(attr => 
-                    attr.AttributeClass != null
-                    && attr.AttributeClass.ToDisplayString() == MonoReadonlyGenerator.AttributeName
-            )) {
-                if (propertiesNames.Contains(property.Name))
-                {
-                    var diagnostic = Diagnostic.Create(DuplicateAssignmentRule, assignmentExpression.GetLocation(), assignmentExpression.Left.ToString());
-                    context.ReportDiagnostic(diagnostic);
-                }
-                else
-                {
-                    propertiesNames.Add(property.Name);
-                }
-                
-                // Report a diagnostic for each assignment to property
-                var methodDeclaration = assignmentExpression.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
-                if (methodDeclaration != null && !AllowedMethodsNames.Contains(methodDeclaration.Identifier.ValueText))
-                {
-                    var diagnostic = Diagnostic.Create(AssignmentRule, assignmentExpression.GetLocation(), assignmentExpression.Left.ToString());
-                    context.ReportDiagnostic(diagnostic);
-                }
+            if (symbol is not IFieldSymbol property || !property.GetAttributes().Any(attr =>
+                attr.AttributeClass != null
+                && attr.AttributeClass.ToDisplayString() == MonoReadonlyGenerator.AttributeName
+            ))
+            {
+                continue;
             }
+            
+            if (propertiesNames.Contains(property.Name))
+            {
+                var duplicateDiagnostic = Diagnostic.Create(duplicateAssignmentRule, assignmentExpression.GetLocation(), assignmentExpression.Left.ToString());
+                context.ReportDiagnostic(duplicateDiagnostic);
+            }
+            else
+            {
+                propertiesNames.Add(property.Name);
+            }
+                
+            // Report a diagnostic for each assignment to property
+            var methodDeclaration = assignmentExpression.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
+            if (methodDeclaration == null || allowedMethodsNames.Contains(methodDeclaration.Identifier.ValueText))
+            {
+                continue;
+            }
+
+            var assignmentDiagnostic = Diagnostic.Create(assignmentRule, assignmentExpression.GetLocation(), assignmentExpression.Left.ToString());
+            context.ReportDiagnostic(assignmentDiagnostic);
         }
     }
 
-    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(AssignmentRule, DuplicateAssignmentRule);
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(assignmentRule, duplicateAssignmentRule);
 }

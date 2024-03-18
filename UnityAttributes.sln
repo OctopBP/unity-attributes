@@ -1,9 +1,5 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublicAccessor.IncrementalGenerator", "PublicAccessor.IncrementalGenerator\PublicAccessor.IncrementalGenerator.csproj", "{B8CB288F-9675-46BC-A282-06D1AF7B57E4}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityAttributes.Example", "UnityAttributes.Example\UnityAttributes.Example.csproj", "{A01713F5-F846-4C3C-A274-AC21807C67E5}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityAttributes", "UnityAttributes\UnityAttributes.csproj", "{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}"
 EndProject
 Global
@@ -12,14 +8,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{B8CB288F-9675-46BC-A282-06D1AF7B57E4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B8CB288F-9675-46BC-A282-06D1AF7B57E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B8CB288F-9675-46BC-A282-06D1AF7B57E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B8CB288F-9675-46BC-A282-06D1AF7B57E4}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A01713F5-F846-4C3C-A274-AC21807C67E5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A01713F5-F846-4C3C-A274-AC21807C67E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A01713F5-F846-4C3C-A274-AC21807C67E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A01713F5-F846-4C3C-A274-AC21807C67E5}.Release|Any CPU.Build.0 = Release|Any CPU
 		{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}.Release|Any CPU.ActiveCfg = Release|Any CPU

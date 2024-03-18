@@ -1,72 +1,77 @@
-using System;
 using System.Text;
 
-namespace UnityAttributes.Common; 
+namespace UnityAttributes.Common;
 
 public class CodeBuilder
 {
-  public enum IdentChange
-  {
-    None,
-    IncreaseBefore,
-    DecreaseBefore,
-    IncreaseAfter,
-    DecreaseAfter
-  }
-  
-  const string IndentSymbol = "  ";
-  
-  readonly StringBuilder stringBuilder = new();
-  int indent;
+    private readonly StringBuilder _sb = new StringBuilder();
+    private int _ident = 0;
 
-  public void append(string text) => stringBuilder.Append(text);
-  public void appendEmptyLine() => stringBuilder.AppendLine();
-
-  public void appendLine(string text, IdentChange identChange = IdentChange.None)
-  {
-    switch (identChange) {
-      case IdentChange.None:
-      case IdentChange.IncreaseAfter:
-      case IdentChange.DecreaseAfter:
-        break;
-      case IdentChange.IncreaseBefore:
-        indent++; break;
-      case IdentChange.DecreaseBefore:
-        indent--; break;
-      default: throw new ArgumentOutOfRangeException(nameof(identChange), identChange, null);
+    public CodeBuilder AppendLine()
+    {
+        _sb.AppendLine();
+        return this;
     }
     
-    stringBuilder.AppendLine(identToSpaces() + text);
+    public CodeBuilder AppendLine(string value)
+    {
+        _sb.AppendLine(value);
+        return this;
+    }
     
-    switch (identChange)
+    public CodeBuilder AppendLineWithIdent(string value)
     {
-      case IdentChange.None:
-      case IdentChange.IncreaseBefore:
-      case IdentChange.DecreaseBefore:
-        break;
-      case IdentChange.IncreaseAfter:
-        indent++; break;
-      case IdentChange.DecreaseAfter:
-        indent--; break;
-      default: throw new ArgumentOutOfRangeException(nameof(identChange), identChange, null);
+        return AppendIdent().AppendLine(value);
     }
-  
-    string identToSpaces()
+    
+    public CodeBuilder Append(string value)
     {
-      if (indent <= 0) return string.Empty;
-      var textAsSpan = IndentSymbol.AsSpan();
-      var span = new Span<char>(new char[textAsSpan.Length * indent]);
-      for (var idx = 0; idx < indent; idx++)
-      {
-        textAsSpan.CopyTo(span.Slice(idx * textAsSpan.Length, textAsSpan.Length));
-      }
-
-      return span.ToString();
+        _sb.Append(value);
+        return this;
     }
-  }
+    
+    public CodeBuilder Append(char value)
+    {
+        _sb.Append(value);
+        return this;
+    }
 
-  public string getResult()
-  {
-    return stringBuilder.ToString();
-  }
+    public CodeBuilder AppendIdent()
+    {
+        for (var i = 0; i < _ident; i++)
+        {
+            _sb.Append("    ");
+        }
+        return this;
+    }
+
+    public CodeBuilder OpenBrackets()
+    {
+        return AppendLineWithIdent("{").IncreaseIdent();
+    }
+    
+    public CodeBuilder CloseBrackets()
+    {
+        return DecreaseIdent().AppendLineWithIdent("}");
+    }
+    
+    public CodeBuilder IncreaseIdent()
+    {
+        _ident++;
+        return this;
+    }
+    
+    public CodeBuilder DecreaseIdent()
+    {
+        if (_ident > 0)
+        {
+            _ident--;
+        }
+        return this;
+    }
+
+    public override string ToString()
+    {
+        return _sb.ToString();
+    }
 }
