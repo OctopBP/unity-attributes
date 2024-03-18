@@ -8,12 +8,14 @@ public partial class MonoReadonlyGenerator
 	static readonly string generatedCodeAttribute = typeof(MonoReadonlyGenerator).GeneratedCodeAttribute();
 	
 	readonly string attributeText = @$"{Const.AUTO_GENERATED_TEXT}
-
-{generatedCodeAttribute}
-[global::System.AttributeUsage(global::System.AttributeTargets.Field, Inherited = true, AllowMultiple = false)]
-internal class {AttributeName} : global::System.Attribute
+namespace UnityAttributes
 {{
-  public {AttributeName}() {{ }}
+    {generatedCodeAttribute}
+    [global::System.AttributeUsage(global::System.AttributeTargets.Field, Inherited = true, AllowMultiple = false)]
+    internal class {AttributeName} : global::System.Attribute
+    {{
+        public {AttributeName}() {{ }}
+    }}
 }}
 ";
 }

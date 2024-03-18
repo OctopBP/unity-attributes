@@ -18,7 +18,7 @@ public partial class GenConstructorGenerator : ISourceGenerator
     public void Initialize(GeneratorInitializationContext context)
     {
         context.RegisterForPostInitialization(i => { 
-            i.AddSource($"{AttributeName}.g.cs", attributeText);
+            i.AddSource($"{ATTRIBUTE_NAME}.g.cs", ATTRIBUTE_TEXT);
             i.AddSource($"{IgnoreAttributeName}.g.cs", ignoreAttributeText);
         });
         context.RegisterForSyntaxNotifications(() => new SyntaxReceiver());
@@ -116,7 +116,7 @@ internal class SyntaxReceiver : ISyntaxContextReceiver
         
         var haveAttribute =
             classSymbol?.GetAttributes().Any(ad =>
-                ad.AttributeClass?.ToDisplayString() == GenConstructorGenerator.AttributeName
+                ad.AttributeClass?.ToDisplayString() == GenConstructorGenerator.ATTRIBUTE_NAME
             ) ?? false;
 
         if (!haveAttribute) return;

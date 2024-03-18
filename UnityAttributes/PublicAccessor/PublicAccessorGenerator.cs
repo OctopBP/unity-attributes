@@ -32,7 +32,7 @@ public sealed class PublicAccessorGenerator : IIncrementalGenerator
 
     private static bool IsSyntaxTargetForGeneration(SyntaxNode node)
     {
-        return node is not ClassDeclarationSyntax;
+        return node is ClassDeclarationSyntax;
     }
         
     private static ClassToProcess? GetSemanticTargetForGeneration(GeneratorSyntaxContext ctx, CancellationToken token)
@@ -65,6 +65,11 @@ public sealed class PublicAccessorGenerator : IIncrementalGenerator
                 }
             }
         }
+
+        if (fieldToProcess.Count == 0)
+        {
+            return null;
+        }
             
         return new ClassToProcess(classTypeSymbol, fieldToProcess, classDeclarationSymbol.GetNamespace());
     }
@@ -90,7 +95,7 @@ public sealed class PublicAccessorGenerator : IIncrementalGenerator
             builder.OpenBrackets();
         }
 
-        builder.AppendIdent().Append(methodVisibility).Append(" partial class ").Append(classToProcess.FieldSymbol.Name);
+        builder.AppendIdent().Append(methodVisibility).Append(" partial class ").AppendLine(classToProcess.FieldSymbol.Name);
         builder.OpenBrackets();
         
         foreach (var field in classToProcess.Fields)
