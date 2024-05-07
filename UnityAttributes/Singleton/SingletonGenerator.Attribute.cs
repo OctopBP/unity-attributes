@@ -1,19 +1,12 @@
-using UnityAttributes.Common;
+using System;
+using SourceGeneration.Utils.Common;
 
 namespace UnityAttributes.Singleton;
 
-public partial class SingletonGenerator {
-  public const string AttributeName = "SingletonAttribute";
-  readonly string attributeText = @$"{Const.AUTO_GENERATED_TEXT}
-
-namespace UnityAttributes
-{{
-    {generatedCodeAttribute}
-    [global::System.AttributeUsage(global::System.AttributeTargets.Class, Inherited = true, AllowMultiple = false)]
-    internal sealed class {AttributeName} : global::System.Attribute
-    {{
-        public {AttributeName}() {{ }}
-    }}
-}}
-";
+public partial class SingletonGenerator
+{
+    public const string AttributeName = "Singleton";
+    public static readonly string AttributeFullName = AttributeName.WithAttributePostfix();
+    public static readonly string AttributeText =
+        Utils.SimpleAttribute(AttributeName, typeof(SingletonGenerator), AttributeTargets.Class, false);
 }

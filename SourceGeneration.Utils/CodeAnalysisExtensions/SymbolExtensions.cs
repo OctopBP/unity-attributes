@@ -1,7 +1,7 @@
 #nullable enable
 using Microsoft.CodeAnalysis;
 
-namespace UnityAttributes.Common;
+namespace SourceGeneration.Utils.CodeAnalysisExtensions;
 
 public static class SymbolExtensions
 {

@@ -7,7 +7,7 @@ public partial class MonoReadonlyGenerator : ISourceGenerator
 {
 	public void Initialize(GeneratorInitializationContext context)
 	{
-		context.RegisterForPostInitialization(i => i.AddSource($"{AttributeName}.g.cs", attributeText));
+		context.RegisterForPostInitialization(i => i.AddSource($"{AttributeFullName}.g.cs", AttributeText));
 	}
 
 	public void Execute(GeneratorExecutionContext context) {}

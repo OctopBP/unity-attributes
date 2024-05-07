@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace UnityAttributes.Common;
+namespace SourceGeneration.Utils.CodeAnalysisExtensions;
 
-public static class MemberDeclarationSyntaxExtensions
+public static class DeclarationSyntaxExtensions
 {
     public static bool HaveAttribute(this MemberDeclarationSyntax enumDeclarationSyntax, string attributeName)
     {
@@ -12,7 +13,7 @@ public static class MemberDeclarationSyntaxExtensions
         {
             foreach (var attributeSyntax in attributeListSyntax.Attributes)
             {
-                if (attributeSyntax.Name.IsEqualByName(attributeName))
+                if (attributeSyntax.Name.AttributeIsEqualByName(attributeName))
                 {
                     return true;
                 }
@@ -30,7 +31,7 @@ public static class MemberDeclarationSyntaxExtensions
         {
             foreach (var attributeSyntax in attributeListSyntax.Attributes)
             {
-                if (attributeSyntax.Name.IsEqualByName(attributeName))
+                if (attributeSyntax.Name.AttributeIsEqualByName(attributeName))
                 {
                     list.Add(attributeSyntax);
                 }
@@ -64,7 +65,7 @@ public static class MemberDeclarationSyntaxExtensions
         {
             foreach (var attributeSyntax in attributeListSyntax.Attributes)
             {
-                if (!attributeSyntax.Name.IsEqualByName(attributeName))
+                if (!attributeSyntax.Name.AttributeIsEqualByName(attributeName))
                 {
                     continue;
                 }
@@ -80,6 +81,37 @@ public static class MemberDeclarationSyntaxExtensions
         }
 
         argumentList = default;
+        return false;
+    }
+
+    public static bool HaveInterface(this ITypeSymbol typeSymbol, string interfaceName)
+    {
+        foreach (var typeInterface in typeSymbol.Interfaces)
+        {
+            if (typeInterface.ToDisplayString() == interfaceName)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+    
+    public static bool HaveInterface(this ClassDeclarationSyntax classDeclarationSyntax, string interfaceName)
+    {
+        if (classDeclarationSyntax.BaseList is null)
+        {
+            return false;
+        }
+        
+        foreach (var baseTypeSyntax in classDeclarationSyntax.BaseList.Types)
+        {
+            if (baseTypeSyntax.Type.ToString() == interfaceName)
+            {
+                return true;
+            }
+        }
+
         return false;
     }
 }

@@ -1,0 +1,8 @@
+﻿<wpf:ResourceDictionary xml:space="preserve" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:s="clr-namespace:System;assembly=mscorlib" xmlns:ss="urn:shemas-jetbrains-com:settings-storage-xaml" xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+	<s:Boolean x:Key="/Default/AddReferences/RecentPaths/=_002FUsers_002Fboris_005Fproshin_002FProjects_002FC_0023_002FSourceGeneration_002EUtils_002FSourceGeneration_002EUtils_002Fbin_002FDebug_002Fnetstandard2_002E0_002FSourceGeneration_002EUtils_002Edll/@EntryIndexedValue">True</s:Boolean>
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=8bca7009_002D2edd_002D4069_002Dbf67_002Dec790b5cb925/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="All tests from &amp;lt;UnityAttributes.Tests&amp;gt; #2" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
+  &lt;Project Location="/Users/boris_proshin/Projects/C#/public-access-attribute/UnityAttributes.Tests" Presentation="&amp;lt;UnityAttributes.Tests&amp;gt;" /&gt;
+&lt;/SessionState&gt;</s:String>
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=c0804087_002D60f2_002D4a24_002D9ef7_002Da6d432b31bb8/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" Name="All tests from &amp;lt;UnityAttributes.Tests&amp;gt;" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
+  &lt;Project Location="/Users/boris_proshin/Projects/C#/public-access-attribute/UnityAttributes.Tests" Presentation="&amp;lt;UnityAttributes.Tests&amp;gt;" /&gt;
+&lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>

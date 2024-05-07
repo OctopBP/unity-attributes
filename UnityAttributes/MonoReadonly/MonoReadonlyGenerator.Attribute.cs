@@ -1,21 +1,12 @@
-using UnityAttributes.Common;
+using System;
+using SourceGeneration.Utils.Common;
 
 namespace UnityAttributes.MonoReadonly;
 
 public partial class MonoReadonlyGenerator
 {
-	public const string AttributeName = "MonoReadonlyAttribute";
-	static readonly string generatedCodeAttribute = typeof(MonoReadonlyGenerator).GeneratedCodeAttribute();
-	
-	readonly string attributeText = @$"{Const.AUTO_GENERATED_TEXT}
-namespace UnityAttributes
-{{
-    {generatedCodeAttribute}
-    [global::System.AttributeUsage(global::System.AttributeTargets.Field, Inherited = true, AllowMultiple = false)]
-    internal class {AttributeName} : global::System.Attribute
-    {{
-        public {AttributeName}() {{ }}
-    }}
-}}
-";
+	public const string AttributeName = "MonoReadonly";
+	public static readonly string AttributeFullName = AttributeName.WithAttributePostfix();
+	public static readonly string AttributeText =
+		Utils.SimpleAttribute(AttributeName, typeof(MonoReadonlyGenerator), AttributeTargets.Field, false);
 }

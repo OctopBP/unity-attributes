@@ -2,13 +2,13 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 
-namespace UnityAttributes.PublicAccessor;
+namespace UnityAttributes.GenConstructor;
 
-internal sealed record ClassToProcess(ITypeSymbol ClassSymbol, List<FieldToProcess> Fields)
+internal sealed record ClassToProcess(ITypeSymbol ClassSymbol, List<IFieldSymbol> Fields)
 {
     public string FullCsharpName { get; } = ClassSymbol.ToDisplayString();
     public string DocumentationId { get; } = DocumentationCommentId.CreateDeclarationId(ClassSymbol);
         
     public ITypeSymbol ClassSymbol { get; } = ClassSymbol;
-    public List<FieldToProcess> Fields { get; } = Fields;
+    public List<IFieldSymbol> Fields { get; } = Fields;
 }

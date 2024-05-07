@@ -2,6 +2,10 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityAttributes", "UnityAttributes\UnityAttributes.csproj", "{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnityAttributes.Tests", "UnityAttributes.Tests\UnityAttributes.Tests.csproj", "{62A7EE3F-A10F-48F7-A7A6-06F6A2720662}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SourceGeneration.Utils", "SourceGeneration.Utils\SourceGeneration.Utils.csproj", "{EEB38550-607F-40F2-A3F1-FEAA10985EDD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +16,13 @@ Global
 		{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F8986E61-FBE1-4A42-BFE8-9EFF365E44B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{62A7EE3F-A10F-48F7-A7A6-06F6A2720662}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{62A7EE3F-A10F-48F7-A7A6-06F6A2720662}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{62A7EE3F-A10F-48F7-A7A6-06F6A2720662}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{62A7EE3F-A10F-48F7-A7A6-06F6A2720662}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EEB38550-607F-40F2-A3F1-FEAA10985EDD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EEB38550-607F-40F2-A3F1-FEAA10985EDD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EEB38550-607F-40F2-A3F1-FEAA10985EDD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EEB38550-607F-40F2-A3F1-FEAA10985EDD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

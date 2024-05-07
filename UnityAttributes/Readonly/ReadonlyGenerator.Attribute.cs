@@ -1,21 +1,12 @@
-using UnityAttributes.Common;
+using System;
+using SourceGeneration.Utils.Common;
 
 namespace UnityAttributes.Readonly;
 
 public partial class ReadonlyGenerator
 {
-	public const string AttributeName = "ReadonlyAttribute";
-	static readonly string generatedCodeAttribute = typeof(ReadonlyGenerator).GeneratedCodeAttribute();
-	
-	readonly string attributeText = @$"{Const.AUTO_GENERATED_TEXT}
-namespace UnityAttributes
-{{
-    {generatedCodeAttribute}
-    [global::System.AttributeUsage(global::System.AttributeTargets.Field, Inherited = true, AllowMultiple = false)]
-    internal class {AttributeName} : global::System.Attribute
-    {{
-        public {AttributeName}() {{ }}
-    }}
-}}
-";
+	public const string AttributeName = "Readonly";
+	public static readonly string AttributeFullName = AttributeName.WithAttributePostfix();
+	public static readonly string AttributeText =
+		Utils.SimpleAttribute(AttributeName, typeof(ReadonlyGenerator), AttributeTargets.Field, false);
 }

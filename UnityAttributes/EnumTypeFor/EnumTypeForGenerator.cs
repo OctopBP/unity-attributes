@@ -1,10 +1,13 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
-using UnityAttributes.Common;
+using SourceGeneration.Utils.CodeAnalysisExtensions;
+using SourceGeneration.Utils.CodeBuilder;
+using SourceGeneration.Utils.Common;
 
 namespace UnityAttributes.EnumTypeFor;
 
@@ -22,7 +25,7 @@ public sealed class EnumTypeForGenerator : IIncrementalGenerator
             .SelectMany(static (array, _) => array);
 
         context.RegisterPostInitializationOutput(i => i.AddSource(
-            $"{EnumTypeForAttribute.ATTRIBUTE_FULL_NAME}.g", EnumTypeForAttribute.ATTRIBUTE_TEXT));
+            $"{EnumTypeForAttribute.AttributeFullName}.g", EnumTypeForAttribute.AttributeText));
         
         context.RegisterSourceOutput(enums, GenerateCode);
     }
@@ -53,7 +56,7 @@ public sealed class EnumTypeForGenerator : IIncrementalGenerator
 
         var list = new List<EnumToProcess>();
         foreach (var attributeSyntax in enumDeclarationSyntax.AllAttributesWhere
-                     (syntax => syntax.Name.IsEqualByName(EnumTypeForAttribute.ATTRIBUTE_SHORT_NAME)))
+                     (syntax => syntax.Name.AttributeIsEqualByName(EnumTypeForAttribute.AttributeName)))
         {
             if (attributeSyntax.ArgumentList is null)
             {
@@ -77,17 +80,41 @@ public sealed class EnumTypeForGenerator : IIncrementalGenerator
                 continue;
             }
 
-            var shortName = true;
+            // TODO: Rework this logic
+            string customName = null;
+            var unitySerializable = true;
             if (arguments.Count > 1)
             {
-                if (arguments[1].Expression is LiteralExpressionSyntax { Token.Text: "false" })
+                var argument = arguments[1];
+                if (argument.NameColon is not null
+                    && argument.NameColon.Name.GetNameText() == "unitySerializable"
+                    && argument.Expression is LiteralExpressionSyntax { Token.Text: "false" })
                 {
-                    shortName = false;
+                    unitySerializable = false;
+                }
+                else if (argument.Expression is LiteralExpressionSyntax literalExpressionSyntax)
+                {
+                    customName = literalExpressionSyntax.Token.Text;
+                }
+            }
+            
+            if (arguments.Count > 2)
+            {
+                var argument = arguments[2];
+                if (argument.NameColon is not null
+                    && argument.NameColon.Name.GetNameText() == "shortName"
+                    && argument.Expression is LiteralExpressionSyntax literalExpressionSyntax)
+                {
+                    customName = literalExpressionSyntax.Token.Text;
+                }
+                else if (argument.Expression is LiteralExpressionSyntax { Token.Text: "false" })
+                {
+                    unitySerializable = false;
                 }
             }
 
-            list.Add(new EnumToProcess(
-                enumDeclarationTypeSymbol, forTypeSymbol, membersToProcess, enumNamespace, shortName));
+            list.Add(new EnumToProcess(enumDeclarationTypeSymbol, forTypeSymbol, membersToProcess,
+                enumNamespace, customName, unitySerializable));
         }
 
         return list;
@@ -96,8 +123,7 @@ public sealed class EnumTypeForGenerator : IIncrementalGenerator
     private static void GenerateCode(SourceProductionContext context, EnumToProcess enumToProcess)
     {
         var code = GenerateCode(enumToProcess);
-        context.AddSource($"{enumToProcess.FullCsharpName}_for_{enumToProcess.ForTypeSymbol.ToDisplayString()}.g",
-            SourceText.From(code, Encoding.UTF8));
+        context.AddSource($"{enumToProcess.ClassName}.g", SourceText.From(code, Encoding.UTF8));
     }
 
     private static string GenerateCode(EnumToProcess enumToProcess)
@@ -117,34 +143,20 @@ public sealed class EnumTypeForGenerator : IIncrementalGenerator
             builder.OpenBrackets();
         }
 
-        builder.AppendLineWithIdent("[System.Serializable]");
+        if (enumToProcess.UnitySerializable)
+        {
+            builder.AppendLineWithIdent("[System.Serializable]");
+        }
         builder.AppendIdent().Append(methodVisibility).Append(" class ").AppendLine(enumToProcess.ClassName);
         builder.OpenBrackets();
 
-        foreach (var member in enumToProcess.Members)
-        {
-            builder
-                .AppendIdent().Append("[UnityEngine.SerializeField] public ")
-                .Append(typeName).Append(" ")
-                .Append(member.Name).AppendLine(";");
-        }
-        
-        builder.AppendLine();
-        builder
-            .AppendIdent().Append("public ").Append(typeName)
-            .Append(" Get(").Append(enumToProcess.FullCsharpName).AppendLine(" key)");
-        builder.OpenBrackets();
-        builder.AppendLineWithIdent("return key switch");
-        builder.OpenBrackets();
-        foreach (var member in enumToProcess.Members)
-        {
-            builder.AppendIdent().Append(enumToProcess.FullCsharpName).Append(".").Append(member.Name)
-                .Append(" => ").Append(member.Name).AppendLine(",");
-        }
-        builder.AppendLineWithIdent("_ => throw new System.ArgumentOutOfRangeException(nameof(key), key, null),");
-        builder.DecreaseIdent().AppendLineWithIdent("};");
-        builder.CloseBrackets();
-        
+        Fields();
+        DefaultConstructor();
+        Constructor();
+        Get();
+        Set();
+        Apply();
+
         builder.CloseBrackets();
 
         if (!string.IsNullOrEmpty(enumToProcess.FullNamespace))
@@ -152,5 +164,103 @@ public sealed class EnumTypeForGenerator : IIncrementalGenerator
             builder.CloseBrackets();
         }
 
-        return builder.ToString(); }
+        return builder.ToString();
+        
+        void Fields()
+        {
+            foreach (var member in enumToProcess.Members)
+            {
+                builder.AppendIdent();
+                if (enumToProcess.UnitySerializable)
+                {
+                    builder.Append("[UnityEngine.SerializeField] ");
+                }
+                builder.Append("private ").Append(typeName).Append(" ").Append(member.Name).AppendLine(";");
+            }
+        }
+        
+        void DefaultConstructor()
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public ").Append(enumToProcess.ClassName).Append("() { }").AppendLine();
+        }
+        
+        void Constructor()
+        {
+            builder.AppendLine();
+            builder
+                .AppendIdent().Append("public ").Append(enumToProcess.ClassName)
+                .Append("(")
+                .Append(string.Join(", ", enumToProcess.Members.Select(member => $"{typeName} {member.Name.FirstCharToLower()}")))
+                .Append(")")
+                .AppendLine();
+        
+            builder.OpenBrackets();
+            foreach (var member in enumToProcess.Members)
+            {
+                builder
+                    .AppendIdent().Append("this.").Append(member.Name).Append(" = ")
+                    .Append(member.Name.FirstCharToLower()).Append(";")
+                    .AppendLine();
+            }
+            builder.CloseBrackets();
+        }
+
+        void Get()
+        {
+            builder.AppendLine();
+            builder
+                .AppendIdent().Append("public ").Append(typeName)
+                .Append(" Get(").Append(enumToProcess.FullCsharpName).AppendLine(" key)");
+            builder.OpenBrackets();
+            builder.AppendLineWithIdent("return key switch");
+            builder.OpenBrackets();
+            foreach (var member in enumToProcess.Members)
+            {
+                builder.AppendIdent().Append(enumToProcess.FullCsharpName).Append(".").Append(member.Name)
+                    .Append(" => ").Append(member.Name).AppendLine(",");
+            }
+            builder.AppendLineWithIdent("_ => throw new System.ArgumentOutOfRangeException(nameof(key), key, null),");
+            builder.DecreaseIdent().AppendLineWithIdent("};");
+            builder.CloseBrackets();
+        }
+        
+        void Set()
+        {
+            builder.AppendLine();
+            builder
+                .AppendIdent().Append("public void Set(").Append(enumToProcess.FullCsharpName)
+                .Append(" key, ").Append(typeName).AppendLine(" value)");
+            builder.OpenBrackets();
+            builder.AppendLineWithIdent("switch (key)");
+            builder.OpenBrackets();
+            foreach (var member in enumToProcess.Members)
+            {
+                builder.AppendIdent().Append("case ").Append(enumToProcess.FullCsharpName).Append(".").Append(member.Name)
+                    .Append(": ").Append(member.Name).AppendLine(" = value; break;");
+            }
+            builder.AppendLineWithIdent("default: throw new System.ArgumentOutOfRangeException(nameof(key), key, null);");
+            builder.DecreaseIdent().AppendLineWithIdent("}");
+            builder.CloseBrackets();
+        }
+        
+        void Apply()
+        {
+            builder.AppendLine();
+            builder
+                .AppendIdent().Append("public void Apply(").Append(enumToProcess.FullCsharpName)
+                .Append(" key, System.Func<").Append(typeName).Append(", ").Append(typeName).AppendLine("> func)");
+            builder.OpenBrackets();
+            builder.AppendLineWithIdent("switch (key)");
+            builder.OpenBrackets();
+            foreach (var member in enumToProcess.Members)
+            {
+                builder.AppendIdent().Append("case ").Append(enumToProcess.FullCsharpName).Append(".").Append(member.Name)
+                    .Append(": ").Append(member.Name).Append(" = func(").Append(member.Name).AppendLine("); break;");
+            }
+            builder.AppendLineWithIdent("default: throw new System.ArgumentOutOfRangeException(nameof(key), key, null);");
+            builder.DecreaseIdent().AppendLineWithIdent("}");
+            builder.CloseBrackets();
+        }
+    }
 }

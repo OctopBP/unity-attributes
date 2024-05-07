@@ -1,14 +1,12 @@
 #nullable enable
-using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 
-namespace UnityAttributes.PublicAccessor;
+namespace UnityAttributes.ComponentReference;
 
-internal sealed record ClassToProcess(ITypeSymbol ClassSymbol, List<FieldToProcess> Fields)
+internal sealed record ClassProcess(ITypeSymbol ClassSymbol)
 {
     public string FullCsharpName { get; } = ClassSymbol.ToDisplayString();
     public string DocumentationId { get; } = DocumentationCommentId.CreateDeclarationId(ClassSymbol);
         
     public ITypeSymbol ClassSymbol { get; } = ClassSymbol;
-    public List<FieldToProcess> Fields { get; } = Fields;
 }
