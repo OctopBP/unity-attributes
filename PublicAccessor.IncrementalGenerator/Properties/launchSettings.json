@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "PublicAccessor": {
-      "commandName": "DebugRoslynComponent",
-      "targetProject": "..\\PublicAccessor.Example\\PublicAccessor.Example.csproj"
-    }
-  }
-}
