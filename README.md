@@ -18,13 +18,15 @@
 
 ## GenConstructor
 
-**Description:**
+### Description
+
 Automatically generates constructors for a class, including all non-static fields except those marked with `GenConstructorIgnore` .
 
-**How to use the attribute:**
+### How to use
+
 Apply `[GenConstructor]` to your partial class. All non-static fields (except those marked with `[GenConstructorIgnore]` ) will be included as parameters in the generated constructor.
 
-**Example (using the generated code):**
+### Example
 
 ```csharp
 [GenConstructor]
@@ -64,13 +66,15 @@ public partial class MyClass
 
 ## MonoReadonly
 
-**Description:**
+### Description
+
 Restricts assignment to the field only within Unity MonoBehaviour lifecycle methods: `Awake` , `OnEnable` , `Start` , or `Reset` . Assigning elsewhere will trigger a Roslyn analyzer error.
 
-**How to use the attribute:**
+### How to use
+
 Apply `[MonoReadonly]` to a field in a MonoBehaviour. Only assign to this field in `Awake` , `OnEnable` , `Start` , or `Reset` methods.
 
-**Example (using the generated code):**
+### Example
 
 ```csharp
 public class MyComponent : MonoBehaviour
@@ -83,23 +87,19 @@ public class MyComponent : MonoBehaviour
 }
 ```
 
-<details>
-<summary>Generated code</summary>
-
-_No code is generated, but a Roslyn analyzer will enforce assignment rules._
-</details>
-
 ---
 
 ## PublicAccessor
 
-**Description:**
+### Description
+
 Generates a public property accessor for a private or protected field.
 
-**How to use the attribute:**
+### How to use
+
 Apply `[PublicAccessor]` to a private or protected field in a partial class. A public property will be generated for that field.
 
-**Example (using the generated code):**
+### Example
 
 ```csharp
 public partial class MyClass
@@ -125,13 +125,15 @@ public int Value => _value;
 
 ## Readonly
 
-**Description:**
+### Description
+
 Prevents assignment to the field outside of its declaration (enforced by analyzer). Useful for enforcing immutability in Unity projects.
 
-**How to use the attribute:**
+### How to use
+
 Apply `[Readonly]` to a field. You can only assign to this field at its declaration.
 
-**Example (using the generated code):**
+### Example
 
 ```csharp
 public class MyClass
@@ -144,23 +146,19 @@ public class MyClass
 // _score = 20; // Error: assignment not allowed
 ```
 
-<details>
-<summary>Generated code</summary>
-
-_No code is generated, but a Roslyn analyzer will prevent assignment outside of the declaration._
-</details>
-
 ---
 
 ## Record
 
-**Description:**
+### Description
+
 Generates a record-like class with value equality, `ToString` , and other utility methods, similar to C# 9 `record` but for older C# or Unity compatibility.
 
-**How to use the attribute:**
+### How to use
+
 Apply `[Record]` to your partial class. The generator will create constructors, `Equals` , `GetHashCode` , and `ToString` methods.
 
-**Example (using the generated code):**
+### Example
 
 ```csharp
 [Record]
@@ -219,13 +217,15 @@ public partial class MyRecord
 
 ## Singleton
 
-**Description:**
+### Description
+
 Implements the Unity MonoBehaviour singleton pattern. The static `Instance` is set in the specified initialization method (e.g., `Awake` ).
 
-**How to use the attribute:**
+### How to use
+
 Apply `[Singleton("Awake")]` to your partial MonoBehaviour class. The generator will create a static `Instance` property and set it in the specified method.
 
-**Example (using the generated code):**
+### Example
 
 ```csharp
 [Singleton("Awake")]
