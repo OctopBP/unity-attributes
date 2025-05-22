@@ -66,10 +66,17 @@ public class GenConstructorGenerator : IIncrementalGenerator
             
             foreach (var variable in fieldDeclarationSyntax.Declaration.Variables)
             {
-                if (ctx.SemanticModel.GetDeclaredSymbol(variable) is IFieldSymbol fieldSymbol)
+                if (ctx.SemanticModel.GetDeclaredSymbol(variable) is not IFieldSymbol fieldSymbol)
                 {
-                    fieldToProcess.Add(fieldSymbol);
+                    continue;
                 }
+
+                if (fieldSymbol.IsStatic)
+                {
+                    continue;
+                }
+                    
+                fieldToProcess.Add(fieldSymbol);
             }
         }
 
@@ -101,6 +108,9 @@ public class GenConstructorGenerator : IIncrementalGenerator
                 builder.AppendIdent().Append("public partial class ").AppendLine(classToProcess.ClassSymbol.Name);
                 using (new BracketsBlock(builder))
                 {
+                    builder.AppendIdent().Append("public ").Append(classToProcess.ClassSymbol.Name).AppendLine("() { }");
+                    builder.AppendLine();
+                    
                     builder.AppendIdent().Append("public ").Append(classToProcess.ClassSymbol.Name).Append("(");
                     builder.AppendArray(
                         classToProcess.Fields.ToArray(),
