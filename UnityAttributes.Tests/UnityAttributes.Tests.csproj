@@ -59,9 +59,9 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="EnumTypeFor\Tests\" />
       <Folder Include="GenConstructor\Tests\" />
       <Folder Include="PublicAccessor\Tests\" />
+      <Folder Include="Record\Tests\" />
     </ItemGroup>
 
 </Project>

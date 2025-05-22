@@ -12,6 +12,8 @@ namespace Test1
 {
     public partial class TestClass
     {
+        public TestClass() { }
+
         public TestClass(int value1, int value2, int value3, int value6)
         {
             this._value1 = value1;
