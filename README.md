@@ -5,29 +5,21 @@
 
 ---
 
-## Attribute Usage Guide
+## Table of Contents
 
-### 1. `Alias`
-
-**Purpose:**  
-Generates a class with constructors, `ToString` , `Equals` , and other utility methods, acting as an alias for another type.
-
-**Usage Example:**
-
-```csharp
-[Alias(forType: typeof(SomeOtherType))]
-public partial class MyAlias
-{
-    private int _value1;
-    private string _value2;
-}
-```
-
-This will generate constructors and utility methods for `MyAlias` based on its fields.
+* [GenConstructor](#1-genconstructor)
+* [MonoReadonly](#2-monoreadonly)
+* [PublicAccessor](#3-publicaccessor)
+* [Readonly](#4-readonly)
+* [Record](#5-record)
+* [Singleton](#6-singleton)
+* [Generated Code Examples](#generated-code-examples)
 
 ---
 
-### 2. `GenConstructor`
+## Attribute Usage Guide
+
+### 1. `GenConstructor`
 
 **Purpose:**  
 Automatically generates constructors for a class, including all non-static fields except those marked with `GenConstructorIgnore` .
@@ -49,7 +41,7 @@ This will generate a constructor accepting `_value1` , `_value2` , `value3` , an
 
 ---
 
-### 3. `MonoReadonly`
+### 2. `MonoReadonly`
 
 **Purpose:**  
 Restricts assignment to the field only within Unity MonoBehaviour lifecycle methods: `Awake` , `OnEnable` , `Start` , or `Reset` . Assigning elsewhere will trigger a Roslyn analyzer error.
@@ -76,7 +68,7 @@ public class MyComponent : MonoBehaviour
 
 ---
 
-### 4. `PublicAccessor`
+### 3. `PublicAccessor`
 
 **Purpose:**  
 Generates a public property accessor for a private or protected field.
@@ -98,7 +90,7 @@ public int Value => _value;
 
 ---
 
-### 5. `Readonly`
+### 4. `Readonly`
 
 **Purpose:**  
 Prevents assignment to the field outside of its declaration (enforced by analyzer). Useful for enforcing immutability in Unity projects.
@@ -120,7 +112,7 @@ public class MyClass
 
 ---
 
-### 6. `Record`
+### 5. `Record`
 
 **Purpose:**  
 Generates a record-like class with value equality, `ToString` , and other utility methods, similar to C# 9 `record` but for older C# or Unity compatibility.
@@ -140,7 +132,7 @@ This will generate constructors, `Equals` , `GetHashCode` , and `ToString` for `
 
 ---
 
-### 7. `Singleton`
+### 6. `Singleton`
 
 **Purpose:**  
 Implements the Unity MonoBehaviour singleton pattern. The static `Instance` is set in the specified initialization method (e.g., `Awake` ).
@@ -161,66 +153,7 @@ public partial class GameManager : MonoBehaviour
 
 Below you can see what code you write, what code is generated, and how to use the generated code for each attribute.
 
-### 1. `Alias`
-
-**You write:**
-
-```csharp
-[Alias(forType: typeof(SomeOtherType))]
-public partial class MyAlias
-{
-    private int _value1;
-    private string _value2;
-}
-```
-
-**Generated code:**
-
-```csharp
-public partial class MyAlias
-{
-    public MyAlias() { }
-
-    public MyAlias(int value1, string value2)
-    {
-        this._value1 = value1;
-        this._value2 = value2;
-    }
-
-    public override string ToString() => $"MyAlias(_value1: {_value1}, _value2: {_value2})";
-
-    public override int GetHashCode()
-    {
-        unchecked
-        {
-            var hashCode = 0;
-            hashCode = (hashCode * 397) ^ _value1.GetHashCode();
-            hashCode = (hashCode * 397) ^ (_value2?.GetHashCode() ?? 0);
-            return hashCode;
-        }
-    }
-
-    public bool Equals(MyAlias other)
-        => _value1.Equals(other._value1) && _value2 == other._value2;
-
-    public override bool Equals(object obj)
-        => obj is MyAlias other && Equals(other);
-
-    public static bool operator ==(MyAlias left, MyAlias right) => left.Equals(right);
-    public static bool operator !=(MyAlias left, MyAlias right) => !left.Equals(right);
-}
-```
-
-**How to use:**
-
-```csharp
-var alias = new MyAlias(42, "hello");
-Console.WriteLine(alias); // MyAlias(_value1: 42, _value2: hello)
-```
-
----
-
-### 2. `GenConstructor`
+### 1. `GenConstructor`
 
 **You write:**
 
@@ -260,7 +193,7 @@ var obj = new MyClass(1, 2, 3, 4);
 
 ---
 
-### 3. `MonoReadonly`
+### 2. `MonoReadonly`
 
 **You write:**
 
@@ -284,7 +217,7 @@ Any assignment elsewhere will cause a compile-time error.
 
 ---
 
-### 4. `PublicAccessor`
+### 3. `PublicAccessor`
 
 **You write:**
 
@@ -310,7 +243,7 @@ int v = obj.Value; // Accesses the private _value field
 
 ---
 
-### 5. `Readonly`
+### 4. `Readonly`
 
 **You write:**
 
@@ -331,7 +264,7 @@ Any assignment elsewhere will cause a compile-time error.
 
 ---
 
-### 6. `Record`
+### 5. `Record`
 
 **You write:**
 
@@ -390,7 +323,7 @@ Console.WriteLine(rec); // MyRecord(Id: 1, Name: Test)
 
 ---
 
-### 7. `Singleton`
+### 6. `Singleton`
 
 **You write:**
 
