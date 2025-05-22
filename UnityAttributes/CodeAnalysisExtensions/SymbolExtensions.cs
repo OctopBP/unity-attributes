@@ -1,4 +1,6 @@
 #nullable enable
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 
 namespace SourceGeneration.Utils.CodeAnalysisExtensions;
@@ -46,5 +48,15 @@ public static class SymbolExtensions
         }
 
         return IsVisibleOutsideOfAssembly(symbol.ContainingType);
+    }
+
+    public static List<ITypeParameterSymbol> GenericTypes(this ISymbol symbol)
+    {
+        if (symbol is INamedTypeSymbol { IsGenericType: true } namedType)
+        {
+            return [..namedType.TypeParameters];
+        }
+
+        return [];
     }
 }

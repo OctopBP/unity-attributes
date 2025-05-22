@@ -22,6 +22,19 @@ public class NamespaceBlock : IDisposable
             _builder.OpenBrackets();
         }
     }
+    
+    public NamespaceBlock(CodeBuilder builder, string @namespace)
+    {
+        _builder = builder;
+        
+        _exist = !string.IsNullOrEmpty(@namespace);
+            
+        if (_exist)
+        {
+            builder.AppendIdent().Append("namespace ").Append(@namespace).AppendLine();
+            _builder.OpenBrackets();
+        }
+    }
 
     public void Dispose()
     {
