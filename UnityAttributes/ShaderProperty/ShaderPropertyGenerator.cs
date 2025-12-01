@@ -26,6 +26,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         context.RegisterPostInitializationOutput(i =>
         {
             i.AddSource($"{ShaderPropertyType.EnumName}.g", ShaderPropertyType.EnumText);
+            i.AddSource($"{ShaderPropertyMode.EnumName}.g", ShaderPropertyMode.EnumText);
             i.AddSource($"{ShaderPropertyAttribute.AttributeFullName}.g", ShaderPropertyAttribute.AttributeText);
         });
         
@@ -85,14 +86,15 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 continue;
             }
             
-            // Extract isGlobal (third argument, optional, defaults to false)
-            bool isGlobal = false;
-            if (arguments.Count > 2 && arguments[2].Expression is LiteralExpressionSyntax isGlobalLiteral)
+            // Extract mode (third argument, optional, defaults to Default)
+            string mode = "Default";
+            if (arguments.Count > 2 && arguments[2].Expression is MemberAccessExpressionSyntax modeExpr)
             {
-                isGlobal = isGlobalLiteral.Token.Text == "true";
+                var modeName = modeExpr.Name.Identifier.Text;
+                mode = modeName;
             }
             
-            properties.Add(new PropertyToProcess(propertyName, propertyType, isGlobal));
+            properties.Add(new PropertyToProcess(propertyName, propertyType, mode));
         }
 
         if (properties.Count == 0)
@@ -156,52 +158,52 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
     private static void GenerateMethods(CodeBuilder builder, PropertyToProcess property, string propertyName)
     {
         var type = property.Type;
-        var isGlobal = property.IsGlobal;
+        var mode = property.Mode;
         
         switch (type)
         {
             case "Float":
-                GenerateFloatMethods(builder, propertyName, isGlobal);
+                GenerateFloatMethods(builder, propertyName, mode);
                 break;
             case "Integer":
-                GenerateIntegerMethods(builder, propertyName, isGlobal);
+                GenerateIntegerMethods(builder, propertyName, mode);
                 break;
             case "Color":
-                GenerateColorMethods(builder, propertyName, isGlobal);
+                GenerateColorMethods(builder, propertyName, mode);
                 break;
             case "Vector":
-                GenerateVectorMethods(builder, propertyName, isGlobal);
+                GenerateVectorMethods(builder, propertyName, mode);
                 break;
             case "Matrix":
-                GenerateMatrixMethods(builder, propertyName, isGlobal);
+                GenerateMatrixMethods(builder, propertyName, mode);
                 break;
             case "Texture":
-                GenerateTextureMethods(builder, propertyName, isGlobal);
+                GenerateTextureMethods(builder, propertyName, mode);
                 break;
             case "Buffer":
-                GenerateBufferMethods(builder, propertyName, isGlobal);
+                GenerateBufferMethods(builder, propertyName, mode);
                 break;
             case "ConstantBuffer":
-                GenerateConstantBufferMethods(builder, propertyName, isGlobal);
+                GenerateConstantBufferMethods(builder, propertyName, mode);
                 break;
             case "FloatArray":
-                GenerateFloatArrayMethods(builder, propertyName, isGlobal);
+                GenerateFloatArrayMethods(builder, propertyName, mode);
                 break;
             case "ColorArray":
-                GenerateColorArrayMethods(builder, propertyName, isGlobal);
+                GenerateColorArrayMethods(builder, propertyName, mode);
                 break;
             case "VectorArray":
-                GenerateVectorArrayMethods(builder, propertyName, isGlobal);
+                GenerateVectorArrayMethods(builder, propertyName, mode);
                 break;
             case "MatrixArray":
-                GenerateMatrixArrayMethods(builder, propertyName, isGlobal);
+                GenerateMatrixArrayMethods(builder, propertyName, mode);
                 break;
         }
     }
 
-    private static void GenerateFloatMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateFloatMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(float value)");
@@ -221,10 +223,30 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, float value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, float value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetFloat(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static float Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetFloat(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, float value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -233,7 +255,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static float Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static float Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -243,9 +265,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateIntegerMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateIntegerMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(int value)");
@@ -265,10 +287,30 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, int value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, int value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetInt(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static int Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetInt(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, int value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -277,7 +319,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static int Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static int Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -287,9 +329,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateColorMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateColorMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Color value)");
@@ -309,10 +351,30 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, Color value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Color value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetColor(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Color Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetColor(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Color value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -321,7 +383,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Color Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static Color Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -331,9 +393,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateVectorMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateVectorMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Vector4 value)");
@@ -353,10 +415,30 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, Vector4 value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Vector4 value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetVector(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Vector4 Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetVector(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Vector4 value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -365,7 +447,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4 Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static Vector4 Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -375,9 +457,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateMatrixMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateMatrixMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Matrix4x4 value)");
@@ -397,10 +479,30 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, Matrix4x4 value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Matrix4x4 value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetMatrix(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Matrix4x4 Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetMatrix(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Matrix4x4 value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -409,7 +511,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4 Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static Matrix4x4 Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -419,9 +521,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateTextureMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateTextureMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Texture value)");
@@ -441,10 +543,66 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, Texture value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Texture value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetTexture(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Texture Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetTexture(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Offset(this MaterialPropertyBlock propertyBlock, Vector2 value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetTextureOffset(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Offset(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetTextureOffset(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Scale(this MaterialPropertyBlock propertyBlock, Vector2 value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetTextureScale(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Scale(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetTextureScale(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Texture value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -453,7 +611,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, RenderTexture value, RenderTextureSubElement element)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, RenderTexture value, RenderTextureSubElement element)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -462,7 +620,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Texture Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static Texture Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -471,7 +629,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Offset(this Material material, Vector2 value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Offset(Material material, Vector2 value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -480,7 +638,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Offset(this Material material)");
+            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Offset(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -489,7 +647,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Scale(this Material material, Vector2 value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Scale(Material material, Vector2 value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -498,7 +656,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Scale(this Material material)");
+            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Scale(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -508,9 +666,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateBufferMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateBufferMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeBuffer value)");
@@ -530,10 +688,30 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, ComputeBuffer value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, ComputeBuffer value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetBuffer(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, GraphicsBuffer value)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetBuffer(").Append(propertyName).Append(", value);");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, ComputeBuffer value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -542,7 +720,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, GraphicsBuffer value)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, GraphicsBuffer value)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -552,9 +730,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateConstantBufferMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateConstantBufferMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeBuffer value, int offset, int size)");
@@ -574,10 +752,30 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, ComputeBuffer value, int offset, int size)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, ComputeBuffer value, int offset, int size)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, GraphicsBuffer value, int offset, int size)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, ComputeBuffer value, int offset, int size)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -586,7 +784,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, GraphicsBuffer value, int offset, int size)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, GraphicsBuffer value, int offset, int size)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -596,9 +794,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateFloatArrayMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateFloatArrayMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<float> values)");
@@ -627,10 +825,39 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, List<float> values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<float> values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetFloatArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, float[] values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetFloatArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static float[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetFloatArray(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<float> values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -639,7 +866,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, float[] values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, float[] values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -648,7 +875,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static float[] Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static float[] Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -658,9 +885,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateColorArrayMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateColorArrayMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<Color> values)");
@@ -689,10 +916,39 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, List<Color> values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<Color> values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetColorArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Color[] values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetColorArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Color[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetColorArray(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<Color> values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -701,7 +957,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, Color[] values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Color[] values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -710,7 +966,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Color[] Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static Color[] Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -720,9 +976,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateVectorArrayMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateVectorArrayMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<Vector4> values)");
@@ -751,10 +1007,39 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, List<Vector4> values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<Vector4> values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetVectorArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Vector4[] values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetVectorArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Vector4[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetVectorArray(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<Vector4> values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -763,7 +1048,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, Vector4[] values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Vector4[] values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -772,7 +1057,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4[] Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static Vector4[] Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -782,9 +1067,9 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateMatrixArrayMethods(CodeBuilder builder, string propertyName, bool isGlobal)
+    private static void GenerateMatrixArrayMethods(CodeBuilder builder, string propertyName, string mode)
     {
-        if (isGlobal)
+        if (mode == "Global")
         {
             builder.AppendLine();
             builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<Matrix4x4> values)");
@@ -813,10 +1098,39 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 builder.AppendLine();
             }
         }
-        else
+        else if (mode == "WithPropertyBlock")
         {
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, List<Matrix4x4> values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<Matrix4x4> values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetMatrixArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Matrix4x4[] values)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("propertyBlock.SetMatrixArray(").Append(propertyName).Append(", values);");
+                builder.AppendLine();
+            }
+            
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static Matrix4x4[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
+            builder.AppendLine();
+            using (new BracketsBlock(builder))
+            {
+                builder.AppendIdent().Append("return propertyBlock.GetMatrixArray(").Append(propertyName).Append(");");
+                builder.AppendLine();
+            }
+        }
+        else // Default
+        {
+            builder.AppendLine();
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<Matrix4x4> values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -825,7 +1139,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this Material material, Matrix4x4[] values)");
+            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Matrix4x4[] values)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {
@@ -834,7 +1148,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             }
             
             builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4[] Get").Append(propertyName).Append("(this Material material)");
+            builder.AppendIdent().Append("public static Matrix4x4[] Get").Append(propertyName).Append("(Material material)");
             builder.AppendLine();
             using (new BracketsBlock(builder))
             {

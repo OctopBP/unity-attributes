@@ -12,7 +12,7 @@ public static class ShaderPropertyAttribute
         [
             ("string", "name", null),
             ($"{ShaderPropertyType.EnumFullName}", "type", null),
-            ("bool", "isGlobal", "false")
+            ($"{ShaderPropertyMode.EnumFullName}", "mode", $"{ShaderPropertyMode.EnumFullName}.Default")
         ]);
 }
 

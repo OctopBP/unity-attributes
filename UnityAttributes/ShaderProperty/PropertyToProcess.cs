@@ -1,10 +1,10 @@
 namespace UnityAttributes.ShaderProperty;
 
-internal sealed record PropertyToProcess(string Name, string Type, bool IsGlobal)
+internal sealed record PropertyToProcess(string Name, string Type, string Mode)
 {
     public string Name { get; } = Name;
     public string Type { get; } = Type;
-    public bool IsGlobal { get; } = IsGlobal;
+    public string Mode { get; } = Mode;
 }
 
 
