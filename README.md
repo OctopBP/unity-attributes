@@ -12,6 +12,7 @@
 * [PublicAccessor](#publicaccessor)
 * [Readonly](#readonly)
 * [Record](#record)
+* [ShaderProperty](#shaderproperty)
 * [Singleton](#singleton)
 
 ---
@@ -198,6 +199,94 @@ public partial class MyRecord
 
     public static bool operator ==(MyRecord left, MyRecord right) => left.Equals(right);
     public static bool operator !=(MyRecord left, MyRecord right) => !left.Equals(right);
+}
+```
+
+</details>
+
+---
+
+## ShaderProperty
+
+### Description
+
+Generates static shader property IDs and helper methods for setting/getting shader properties on Unity materials, global shader properties, MaterialPropertyBlocks, or ComputeShaders. Supports multiple property types including Float, Integer, Bool, Color, Vector, Matrix, Texture, and arrays.
+
+### How to use
+
+Apply `[ShaderProperty]` attributes to your partial class. Each attribute defines a shader property with a name, type, and optional mode. You can apply multiple `[ShaderProperty]` attributes to the same class.
+
+**Parameters:**
+- `name` (string): The shader property name as it appears in the shader
+- `type` (ShaderPropertyType): The property type (Float, Integer, Bool, Color, Vector, Matrix, Texture, Buffer, ConstantBuffer, FloatArray, ColorArray, VectorArray, MatrixArray)
+- `mode` (ShaderPropertyMode, optional): Access mode - Default (Material), Global (Shader global), WithPropertyBlock (MaterialPropertyBlock extension), or Compute (ComputeShader)
+
+```csharp
+using UnityAttributes.ShaderProperty;
+
+[ShaderProperty("_MainColor", ShaderPropertyType.Color)]
+[ShaderProperty("_Metallic", ShaderPropertyType.Float)]
+[ShaderProperty("_GlowIntensity", ShaderPropertyType.Float, ShaderPropertyMode.Global)]
+public partial class MyShaderProperties
+{
+}
+
+// Usage - Default mode (Material)
+var material = GetComponent<Renderer>().material;
+MyShaderProperties.SetMainColor(material, Color.red);
+Color color = MyShaderProperties.GetMainColor(material);
+
+// Usage - Global mode
+MyShaderProperties.SetGlowIntensity(1.5f);
+float intensity = MyShaderProperties.GetGlowIntensity();
+
+// Usage - WithPropertyBlock mode
+var propertyBlock = new MaterialPropertyBlock();
+propertyBlock.SetMetallic(0.8f);
+float metallic = propertyBlock.GetMetallic();
+```
+
+<details>
+<summary>Generated code</summary>
+
+```csharp
+public partial class MyShaderProperties
+{
+    public static readonly int MainColor = Shader.PropertyToID("_MainColor");
+    
+    public static void SetMainColor(Material material, Color value)
+    {
+        material.SetColor(MainColor, value);
+    }
+    
+    public static Color GetMainColor(Material material)
+    {
+        return material.GetColor(MainColor);
+    }
+    
+    public static readonly int Metallic = Shader.PropertyToID("_Metallic");
+    
+    public static void SetMetallic(Material material, float value)
+    {
+        material.SetFloat(Metallic, value);
+    }
+    
+    public static float GetMetallic(Material material)
+    {
+        return material.GetFloat(Metallic);
+    }
+    
+    public static readonly int GlowIntensity = Shader.PropertyToID("_GlowIntensity");
+    
+    public static void SetGlowIntensity(float value)
+    {
+        Shader.SetGlobalFloat(GlowIntensity, value);
+    }
+    
+    public static float GetGlowIntensity()
+    {
+        return Shader.GetGlobalFloat(GlowIntensity);
+    }
 }
 ```
 
