@@ -13,6 +13,7 @@ public static class ShaderPropertyType
                                        {
                                            Float,
                                            Integer,
+                                           Bool,
                                            Color,
                                            Vector,
                                            Matrix,

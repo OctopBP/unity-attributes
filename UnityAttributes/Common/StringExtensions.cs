@@ -51,4 +51,34 @@ public static class StringExtensions
     }
     
     public static string WithAttributePostfix(this string value) => value + "Attribute";
+    
+    public static string ToPascalCase(this string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return input;
+        
+        // Remove leading underscore if present
+        var processed = input.StartsWith("_") ? input.Substring(1) : input;
+        
+        if (string.IsNullOrEmpty(processed))
+            return processed;
+        
+        // Split by underscore and capitalize first letter of each word
+        var parts = processed.Split('_');
+        var result = new System.Text.StringBuilder();
+        
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrEmpty(part))
+                continue;
+                
+            result.Append(part[0].ToString().ToUpper());
+            if (part.Length > 1)
+            {
+                result.Append(part.Substring(1));
+            }
+        }
+        
+        return result.ToString();
+    }
 }
