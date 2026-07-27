@@ -12,8 +12,8 @@ public static class ShaderPropertyAttribute
         [
             ("string", "name", null),
             ($"{ShaderPropertyType.EnumFullName}", "type", null),
-            ($"{ShaderPropertyMode.EnumFullName}", "mode", $"{ShaderPropertyMode.EnumFullName}.Default")
+            ($"{ShaderPropertyMode.EnumFullName}", "mode", $"{ShaderPropertyMode.EnumFullName}.Default"),
+            ("int", "count", "0"),
+            ("int", "startIndex", "1")
         ]);
 }
-
-

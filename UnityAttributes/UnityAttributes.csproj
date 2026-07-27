@@ -12,8 +12,7 @@
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.0.1" PrivateAssets="all" />
     </ItemGroup>
 
-    <ItemGroup>
-      <ProjectReference Include="..\SourceGeneration.Utils\SourceGeneration.Utils.csproj" />
-    </ItemGroup>
+    <!-- SourceGeneration.Utils (CodeBuilder / Common / CodeAnalysisExtensions) is vendored into this
+         project, so no ProjectReference to it: an analyzer assembly has to be self-contained anyway. -->
 
 </Project>

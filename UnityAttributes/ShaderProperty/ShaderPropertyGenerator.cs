@@ -29,7 +29,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
             i.AddSource($"{ShaderPropertyMode.EnumName}.g", ShaderPropertyMode.EnumText);
             i.AddSource($"{ShaderPropertyAttribute.AttributeFullName}.g", ShaderPropertyAttribute.AttributeText);
         });
-        
+
         context.RegisterSourceOutput(classes, GenerateCode!);
     }
 
@@ -37,7 +37,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
     {
         return node is ClassDeclarationSyntax;
     }
-        
+
     private static Optional<ClassToProcess> GetSemanticTargetForGeneration(GeneratorSyntaxContext ctx, CancellationToken token)
     {
         var classDeclarationSyntax = (ClassDeclarationSyntax) ctx.Node;
@@ -46,7 +46,7 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
         {
             return OptionalExt.None<ClassToProcess>();
         }
-        
+
         var attributes = classDeclarationSyntax.AllAttributesWithName(ShaderPropertyAttribute.AttributeName);
         if (attributes.Count == 0)
         {
@@ -61,48 +61,87 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 continue;
             }
 
-            var arguments = attributeSyntax.ArgumentList.Arguments;
-            
-            // Extract name (first argument)
             string? propertyName = null;
-            if (arguments[0].Expression is LiteralExpressionSyntax nameLiteral)
-            {
-                propertyName = nameLiteral.Token.Text.Trim('"');
-            }
-            if (string.IsNullOrEmpty(propertyName))
-            {
-                continue;
-            }
-            
-            // Extract type (second argument) - enum member access
             string? propertyType = null;
-            if (arguments[1].Expression is MemberAccessExpressionSyntax typeExpr)
+            var mode = "Default";
+            var isArray = false;
+            var count = 1;
+            var startIndex = 1;
+
+            var arguments = attributeSyntax.ArgumentList.Arguments;
+            for (var i = 0; i < arguments.Count; i++)
             {
-                var memberName = typeExpr.Name.Identifier.Text;
-                propertyType = memberName;
+                var argument = arguments[i];
+
+                // A named argument may sit anywhere, but an unnamed one is always at its own position:
+                // C# only allows a named argument to precede a positional one when it is in its own slot.
+                var parameterName = argument.NameColon?.Name.Identifier.Text ?? PositionalParameterName(i);
+
+                switch (parameterName)
+                {
+                    case "name" when argument.Expression is LiteralExpressionSyntax nameLiteral:
+                        propertyName = nameLiteral.Token.ValueText;
+                        break;
+                    // Enums are read syntactically, so both `ShaderPropertyType.Float` and the fully
+                    // qualified form come out as the bare member name.
+                    case "type" when argument.Expression is MemberAccessExpressionSyntax typeExpr:
+                        propertyType = typeExpr.Name.Identifier.Text;
+                        break;
+                    case "mode" when argument.Expression is MemberAccessExpressionSyntax modeExpr:
+                        mode = modeExpr.Name.Identifier.Text;
+                        break;
+                    // count is a group size; 0 (the attribute default) or less means "not specified",
+                    // so a single property is generated exactly as it was before groups existed.
+                    case "count" when TryGetIntValue(ctx.SemanticModel, argument.Expression, token, out var countValue):
+                        isArray = countValue > 0;
+                        count = countValue;
+                        break;
+                    case "startIndex" when TryGetIntValue(ctx.SemanticModel, argument.Expression, token, out var startValue):
+                        startIndex = startValue;
+                        break;
+                }
             }
-            if (string.IsNullOrEmpty(propertyType))
+
+            if (string.IsNullOrEmpty(propertyName) || string.IsNullOrEmpty(propertyType))
             {
                 continue;
             }
-            
-            // Extract mode (third argument, optional, defaults to Default)
-            string mode = "Default";
-            if (arguments.Count > 2 && arguments[2].Expression is MemberAccessExpressionSyntax modeExpr)
-            {
-                var modeName = modeExpr.Name.Identifier.Text;
-                mode = modeName;
-            }
-            
-            properties.Add(new PropertyToProcess(propertyName, propertyType, mode));
+
+            properties.Add(new PropertyToProcess(propertyName!, propertyType!, mode, isArray, count, startIndex));
         }
 
         if (properties.Count == 0)
         {
             return OptionalExt.None<ClassToProcess>();
         }
-            
+
         return new ClassToProcess(classTypeSymbol, properties);
+    }
+
+    private static string? PositionalParameterName(int index)
+    {
+        return index switch
+        {
+            0 => "name",
+            1 => "type",
+            2 => "mode",
+            3 => "count",
+            4 => "startIndex",
+            _ => null
+        };
+    }
+
+    private static bool TryGetIntValue(SemanticModel semanticModel, ExpressionSyntax expression, CancellationToken token, out int value)
+    {
+        var constant = semanticModel.GetConstantValue(expression, token);
+        if (constant is { HasValue: true, Value: int intValue })
+        {
+            value = intValue;
+            return true;
+        }
+
+        value = 0;
+        return false;
     }
 
     private static void GenerateCode(SourceProductionContext context, ClassToProcess classToProcess)
@@ -114,14 +153,14 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
     private static string GenerateCode(ClassToProcess classToProcess)
     {
         var builder = new CodeBuilder();
-        
+
         builder.AppendLineWithIdent(Const.AutoGeneratedText);
         builder.AppendLine();
-        
+
         builder.AppendLine("using UnityEngine;");
         builder.AppendLine("using System.Collections.Generic;");
         builder.AppendLine();
-        
+
         using (new NamespaceBlock(builder, classToProcess.ClassSymbol))
         {
             using (new ParentsBlock(builder, classToProcess.ClassSymbol))
@@ -136,1303 +175,458 @@ public sealed class ShaderPropertyGenerator : IIncrementalGenerator
                 }
             }
         }
-        
+
         return builder.ToString();
     }
 
     private static void GeneratePropertyCode(CodeBuilder builder, PropertyToProcess property)
     {
-        var propertyName = property.Name.ToPascalCase();
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static readonly int ").Append(propertyName).Append(" = Shader.PropertyToID(\"").Append(property.Name).Append("\");");
-        builder.AppendLine();
-        
-        GenerateMethods(builder, property, propertyName);
+        if (!property.IsArray)
+        {
+            GenerateSinglePropertyCode(builder, property, property.Name);
+            return;
+        }
+
+        // "_Fill_" with count: 5 expands into _Fill_1 .. _Fill_5, an array aggregating their ids
+        // and a set of ...At methods addressing that array by index.
+        var elementNames = new string[property.Count];
+        for (var i = 0; i < property.Count; i++)
+        {
+            var shaderName = property.Name + (property.StartIndex + i);
+            elementNames[i] = shaderName.ToPascalCase();
+            GenerateSinglePropertyCode(builder, property, shaderName);
+        }
+
+        var arrayName = property.Name.ToPascalCase();
+        GenerateIdsArray(builder, arrayName, elementNames);
+        GenerateMethods(builder, property, Emit.Indexed(arrayName));
     }
 
-    private static void GenerateMethods(CodeBuilder builder, PropertyToProcess property, string propertyName)
+    private static void GenerateSinglePropertyCode(CodeBuilder builder, PropertyToProcess property, string shaderName)
+    {
+        var propertyName = shaderName.ToPascalCase();
+
+        builder.AppendLine();
+        builder.AppendIdent().Append("public static readonly int ").Append(propertyName).Append(" = Shader.PropertyToID(\"").Append(shaderName).Append("\");");
+        builder.AppendLine();
+
+        GenerateMethods(builder, property, Emit.Single(propertyName));
+    }
+
+    // Emitted after the element fields: static field initializers run in declaration order.
+    private static void GenerateIdsArray(CodeBuilder builder, string arrayName, string[] elementNames)
+    {
+        builder.AppendLine();
+        builder.AppendIdent().Append("public static readonly int[] ").Append(arrayName).Append(" =");
+        builder.AppendLine();
+        using (new BracketsBlock(builder, withSemicolon: true))
+        {
+            foreach (var elementName in elementNames)
+            {
+                builder.AppendIdent().Append(elementName).Append(",");
+                builder.AppendLine();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Describes what a batch of methods addresses: a single property id (<see cref="Single"/>) or an element of
+    /// the generated id array (<see cref="Indexed"/>), in which case every method takes an extra index parameter
+    /// and its name gets the "At" postfix.
+    /// </summary>
+    private readonly struct Emit
+    {
+        private readonly string _name;
+        private readonly string _postfix;
+        private readonly string? _indexParameter;
+
+        private Emit(string name, string id, string postfix, string? indexParameter)
+        {
+            _name = name;
+            _postfix = postfix;
+            _indexParameter = indexParameter;
+            Id = id;
+        }
+
+        public static Emit Single(string propertyName) => new(propertyName, propertyName, "", null);
+
+        public static Emit Indexed(string arrayName) => new(arrayName, arrayName + "[index]", "At", "int index");
+
+        /// <summary>Expression the Unity call is made with, e.g. "Fill1" or "Fill[index]".</summary>
+        public string Id { get; }
+
+        public string Method(string verb, string namePostfix = "") => verb + _name + namePostfix + _postfix;
+
+        /// <summary>Builds a parameter list, placing the index right after <paramref name="target"/>.</summary>
+        public string Params(string? target, params string[] values)
+        {
+            var parameters = new List<string>();
+            if (!string.IsNullOrEmpty(target))
+            {
+                parameters.Add(target!);
+            }
+
+            if (_indexParameter != null)
+            {
+                parameters.Add(_indexParameter);
+            }
+
+            parameters.AddRange(values);
+            return string.Join(", ", parameters);
+        }
+    }
+
+    private static void EmitMethod(CodeBuilder builder, string signature, string body)
+    {
+        builder.AppendLine();
+        builder.AppendIdent().Append(signature);
+        builder.AppendLine();
+        using (new BracketsBlock(builder))
+        {
+            builder.AppendIdent().Append(body);
+            builder.AppendLine();
+        }
+    }
+
+    private static void GenerateMethods(CodeBuilder builder, PropertyToProcess property, Emit p)
     {
         var type = property.Type;
         var mode = property.Mode;
-        
+
         // Handle Compute mode separately
         if (mode == "Compute")
         {
-            GenerateComputeMethods(builder, property, propertyName);
+            GenerateComputeMethods(builder, property, p);
             return;
         }
-        
+
         switch (type)
         {
             case "Float":
-                GenerateFloatMethods(builder, propertyName, mode);
+                GenerateFloatMethods(builder, p, mode);
                 break;
             case "Integer":
-                GenerateIntegerMethods(builder, propertyName, mode);
+                GenerateIntegerMethods(builder, p, mode);
                 break;
             case "Bool":
-                GenerateBoolMethods(builder, propertyName, mode);
+                GenerateBoolMethods(builder, p, mode);
                 break;
             case "Color":
-                GenerateColorMethods(builder, propertyName, mode);
+                GenerateColorMethods(builder, p, mode);
                 break;
             case "Vector":
-                GenerateVectorMethods(builder, propertyName, mode);
+                GenerateVectorMethods(builder, p, mode);
                 break;
             case "Matrix":
-                GenerateMatrixMethods(builder, propertyName, mode);
+                GenerateMatrixMethods(builder, p, mode);
                 break;
             case "Texture":
-                GenerateTextureMethods(builder, propertyName, mode);
+                GenerateTextureMethods(builder, p, mode);
                 break;
             case "Buffer":
-                GenerateBufferMethods(builder, propertyName, mode);
+                GenerateBufferMethods(builder, p, mode);
                 break;
             case "ConstantBuffer":
-                GenerateConstantBufferMethods(builder, propertyName, mode);
+                GenerateConstantBufferMethods(builder, p, mode);
                 break;
             case "FloatArray":
-                GenerateFloatArrayMethods(builder, propertyName, mode);
+                GenerateValueArrayMethods(builder, p, mode, "float", "FloatArray");
                 break;
             case "ColorArray":
-                GenerateColorArrayMethods(builder, propertyName, mode);
+                GenerateValueArrayMethods(builder, p, mode, "Color", "ColorArray");
                 break;
             case "VectorArray":
-                GenerateVectorArrayMethods(builder, propertyName, mode);
+                GenerateValueArrayMethods(builder, p, mode, "Vector4", "VectorArray");
                 break;
             case "MatrixArray":
-                GenerateMatrixArrayMethods(builder, propertyName, mode);
+                GenerateValueArrayMethods(builder, p, mode, "Matrix4x4", "MatrixArray");
                 break;
         }
     }
 
-    private static void GenerateFloatMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateFloatMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(float value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalFloat(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static float Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalFloat(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "float value")})", $"Shader.SetGlobalFloat({p.Id}, value);");
+            EmitMethod(builder, $"public static float {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobalFloat({p.Id});");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, float value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetFloat(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static float Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetFloat(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "float value")})", $"propertyBlock.SetFloat({p.Id}, value);");
+            EmitMethod(builder, $"public static float {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetFloat({p.Id});");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, float value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetFloat(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static float Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetFloat(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "float value")})", $"material.SetFloat({p.Id}, value);");
+            EmitMethod(builder, $"public static float {p.Method("Get")}({p.Params("Material material")})", $"return material.GetFloat({p.Id});");
         }
     }
 
-    private static void GenerateBoolMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateBoolMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(bool value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalInt(").Append(propertyName).Append(", value ? 1 : 0);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static bool Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalInt(").Append(propertyName).Append(") != 0;");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "bool value")})", $"Shader.SetGlobalInt({p.Id}, value ? 1 : 0);");
+            EmitMethod(builder, $"public static bool {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobalInt({p.Id}) != 0;");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, bool value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetInt(").Append(propertyName).Append(", value ? 1 : 0);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static bool Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetInt(").Append(propertyName).Append(") != 0;");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "bool value")})", $"propertyBlock.SetInt({p.Id}, value ? 1 : 0);");
+            EmitMethod(builder, $"public static bool {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetInt({p.Id}) != 0;");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, bool value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetInt(").Append(propertyName).Append(", value ? 1 : 0);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static bool Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetInt(").Append(propertyName).Append(") != 0;");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "bool value")})", $"material.SetInt({p.Id}, value ? 1 : 0);");
+            EmitMethod(builder, $"public static bool {p.Method("Get")}({p.Params("Material material")})", $"return material.GetInt({p.Id}) != 0;");
         }
     }
 
-    private static void GenerateIntegerMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateIntegerMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(int value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalInt(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static int Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalInt(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "int value")})", $"Shader.SetGlobalInt({p.Id}, value);");
+            EmitMethod(builder, $"public static int {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobalInt({p.Id});");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, int value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetInt(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static int Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetInt(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "int value")})", $"propertyBlock.SetInt({p.Id}, value);");
+            EmitMethod(builder, $"public static int {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetInt({p.Id});");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, int value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetInteger(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static int Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetInteger(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "int value")})", $"material.SetInteger({p.Id}, value);");
+            EmitMethod(builder, $"public static int {p.Method("Get")}({p.Params("Material material")})", $"return material.GetInteger({p.Id});");
         }
     }
 
-    private static void GenerateColorMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateColorMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Color value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalColor(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Color Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalColor(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "Color value")})", $"Shader.SetGlobalColor({p.Id}, value);");
+            EmitMethod(builder, $"public static Color {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobalColor({p.Id});");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Color value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetColor(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Color Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetColor(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "Color value")})", $"propertyBlock.SetColor({p.Id}, value);");
+            EmitMethod(builder, $"public static Color {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetColor({p.Id});");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Color value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetColor(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Color Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetColor(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "Color value")})", $"material.SetColor({p.Id}, value);");
+            EmitMethod(builder, $"public static Color {p.Method("Get")}({p.Params("Material material")})", $"return material.GetColor({p.Id});");
         }
     }
 
-    private static void GenerateVectorMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateVectorMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Vector4 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalVector(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4 Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalVector(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "Vector4 value")})", $"Shader.SetGlobalVector({p.Id}, value);");
+            EmitMethod(builder, $"public static Vector4 {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobalVector({p.Id});");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Vector4 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetVector(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4 Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetVector(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "Vector4 value")})", $"propertyBlock.SetVector({p.Id}, value);");
+            EmitMethod(builder, $"public static Vector4 {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetVector({p.Id});");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Vector4 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetVector(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4 Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetVector(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "Vector4 value")})", $"material.SetVector({p.Id}, value);");
+            EmitMethod(builder, $"public static Vector4 {p.Method("Get")}({p.Params("Material material")})", $"return material.GetVector({p.Id});");
         }
     }
 
-    private static void GenerateMatrixMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateMatrixMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Matrix4x4 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalMatrix(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4 Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalMatrix(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "Matrix4x4 value")})", $"Shader.SetGlobalMatrix({p.Id}, value);");
+            EmitMethod(builder, $"public static Matrix4x4 {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobalMatrix({p.Id});");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Matrix4x4 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetMatrix(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4 Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetMatrix(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "Matrix4x4 value")})", $"propertyBlock.SetMatrix({p.Id}, value);");
+            EmitMethod(builder, $"public static Matrix4x4 {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetMatrix({p.Id});");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Matrix4x4 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetMatrix(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4 Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetMatrix(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "Matrix4x4 value")})", $"material.SetMatrix({p.Id}, value);");
+            EmitMethod(builder, $"public static Matrix4x4 {p.Method("Get")}({p.Params("Material material")})", $"return material.GetMatrix({p.Id});");
         }
     }
 
-    private static void GenerateTextureMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateTextureMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Texture value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalTexture(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Texture Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalTexture(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "Texture value")})", $"Shader.SetGlobalTexture({p.Id}, value);");
+            EmitMethod(builder, $"public static Texture {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobalTexture({p.Id});");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Texture value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetTexture(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Texture Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetTexture(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Offset(this MaterialPropertyBlock propertyBlock, Vector2 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetTextureOffset(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Offset(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetTextureOffset(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Scale(this MaterialPropertyBlock propertyBlock, Vector2 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetTextureScale(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Scale(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetTextureScale(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "Texture value")})", $"propertyBlock.SetTexture({p.Id}, value);");
+            EmitMethod(builder, $"public static Texture {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetTexture({p.Id});");
+            EmitMethod(builder, $"public static void {p.Method("Set", "Offset")}({p.Params("this MaterialPropertyBlock propertyBlock", "Vector2 value")})", $"propertyBlock.SetTextureOffset({p.Id}, value);");
+            EmitMethod(builder, $"public static Vector2 {p.Method("Get", "Offset")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetTextureOffset({p.Id});");
+            EmitMethod(builder, $"public static void {p.Method("Set", "Scale")}({p.Params("this MaterialPropertyBlock propertyBlock", "Vector2 value")})", $"propertyBlock.SetTextureScale({p.Id}, value);");
+            EmitMethod(builder, $"public static Vector2 {p.Method("Get", "Scale")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.GetTextureScale({p.Id});");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Texture value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetTexture(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, RenderTexture value, UnityEngine.Rendering.RenderTextureSubElement element)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetTexture(").Append(propertyName).Append(", value, element);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Texture Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetTexture(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Offset(Material material, Vector2 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetTextureOffset(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Offset(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetTextureOffset(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("Scale(Material material, Vector2 value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetTextureScale(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector2 Get").Append(propertyName).Append("Scale(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetTextureScale(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "Texture value")})", $"material.SetTexture({p.Id}, value);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "RenderTexture value", "UnityEngine.Rendering.RenderTextureSubElement element")})", $"material.SetTexture({p.Id}, value, element);");
+            EmitMethod(builder, $"public static Texture {p.Method("Get")}({p.Params("Material material")})", $"return material.GetTexture({p.Id});");
+            EmitMethod(builder, $"public static void {p.Method("Set", "Offset")}({p.Params("Material material", "Vector2 value")})", $"material.SetTextureOffset({p.Id}, value);");
+            EmitMethod(builder, $"public static Vector2 {p.Method("Get", "Offset")}({p.Params("Material material")})", $"return material.GetTextureOffset({p.Id});");
+            EmitMethod(builder, $"public static void {p.Method("Set", "Scale")}({p.Params("Material material", "Vector2 value")})", $"material.SetTextureScale({p.Id}, value);");
+            EmitMethod(builder, $"public static Vector2 {p.Method("Get", "Scale")}({p.Params("Material material")})", $"return material.GetTextureScale({p.Id});");
         }
     }
 
-    private static void GenerateBufferMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateBufferMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeBuffer value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalBuffer(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(GraphicsBuffer value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalBuffer(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "ComputeBuffer value")})", $"Shader.SetGlobalBuffer({p.Id}, value);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "GraphicsBuffer value")})", $"Shader.SetGlobalBuffer({p.Id}, value);");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, ComputeBuffer value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetBuffer(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, GraphicsBuffer value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetBuffer(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "ComputeBuffer value")})", $"propertyBlock.SetBuffer({p.Id}, value);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "GraphicsBuffer value")})", $"propertyBlock.SetBuffer({p.Id}, value);");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, ComputeBuffer value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetBuffer(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, GraphicsBuffer value)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetBuffer(").Append(propertyName).Append(", value);");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "ComputeBuffer value")})", $"material.SetBuffer({p.Id}, value);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "GraphicsBuffer value")})", $"material.SetBuffer({p.Id}, value);");
         }
     }
 
-    private static void GenerateConstantBufferMethods(CodeBuilder builder, string propertyName, string mode)
+    private static void GenerateConstantBufferMethods(CodeBuilder builder, Emit p, string mode)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeBuffer value, int offset, int size)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(GraphicsBuffer value, int offset, int size)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "ComputeBuffer value", "int offset", "int size")})", $"Shader.SetGlobalConstantBuffer({p.Id}, value, offset, size);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, "GraphicsBuffer value", "int offset", "int size")})", $"Shader.SetGlobalConstantBuffer({p.Id}, value, offset, size);");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, ComputeBuffer value, int offset, int size)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, GraphicsBuffer value, int offset, int size)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "ComputeBuffer value", "int offset", "int size")})", $"propertyBlock.SetConstantBuffer({p.Id}, value, offset, size);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", "GraphicsBuffer value", "int offset", "int size")})", $"propertyBlock.SetConstantBuffer({p.Id}, value, offset, size);");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, ComputeBuffer value, int offset, int size)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, GraphicsBuffer value, int offset, int size)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetConstantBuffer(").Append(propertyName).Append(", value, offset, size);");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "ComputeBuffer value", "int offset", "int size")})", $"material.SetConstantBuffer({p.Id}, value, offset, size);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", "GraphicsBuffer value", "int offset", "int size")})", $"material.SetConstantBuffer({p.Id}, value, offset, size);");
         }
     }
 
-    private static void GenerateFloatArrayMethods(CodeBuilder builder, string propertyName, string mode)
+    /// <param name="valueType">Element type of the value array, e.g. "float".</param>
+    /// <param name="unityPostfix">Postfix of the Unity call, e.g. "FloatArray" for Set/GetFloatArray.</param>
+    private static void GenerateValueArrayMethods(CodeBuilder builder, Emit p, string mode, string valueType, string unityPostfix)
     {
         if (mode == "Global")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<float> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalFloatArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(float[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalFloatArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static float[] Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalFloatArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, $"List<{valueType}> values")})", $"Shader.SetGlobal{unityPostfix}({p.Id}, values);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params(null, $"{valueType}[] values")})", $"Shader.SetGlobal{unityPostfix}({p.Id}, values);");
+            EmitMethod(builder, $"public static {valueType}[] {p.Method("Get")}({p.Params(null)})", $"return Shader.GetGlobal{unityPostfix}({p.Id});");
         }
         else if (mode == "WithPropertyBlock")
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<float> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetFloatArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, float[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetFloatArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static float[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetFloatArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", $"List<{valueType}> values")})", $"propertyBlock.Set{unityPostfix}({p.Id}, values);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("this MaterialPropertyBlock propertyBlock", $"{valueType}[] values")})", $"propertyBlock.Set{unityPostfix}({p.Id}, values);");
+            EmitMethod(builder, $"public static {valueType}[] {p.Method("Get")}({p.Params("this MaterialPropertyBlock propertyBlock")})", $"return propertyBlock.Get{unityPostfix}({p.Id});");
         }
         else // Default
         {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<float> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetFloatArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, float[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetFloatArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static float[] Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetFloatArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", $"List<{valueType}> values")})", $"material.Set{unityPostfix}({p.Id}, values);");
+            EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("Material material", $"{valueType}[] values")})", $"material.Set{unityPostfix}({p.Id}, values);");
+            EmitMethod(builder, $"public static {valueType}[] {p.Method("Get")}({p.Params("Material material")})", $"return material.Get{unityPostfix}({p.Id});");
         }
     }
 
-    private static void GenerateColorArrayMethods(CodeBuilder builder, string propertyName, string mode)
-    {
-        if (mode == "Global")
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<Color> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalColorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Color[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalColorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Color[] Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalColorArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-        else if (mode == "WithPropertyBlock")
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<Color> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetColorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Color[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetColorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Color[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetColorArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-        else // Default
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<Color> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetColorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Color[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetColorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Color[] Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetColorArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-    }
-
-    private static void GenerateVectorArrayMethods(CodeBuilder builder, string propertyName, string mode)
-    {
-        if (mode == "Global")
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<Vector4> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalVectorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Vector4[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalVectorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4[] Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalVectorArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-        else if (mode == "WithPropertyBlock")
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<Vector4> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetVectorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Vector4[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetVectorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetVectorArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-        else // Default
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<Vector4> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetVectorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Vector4[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetVectorArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Vector4[] Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetVectorArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-    }
-
-    private static void GenerateMatrixArrayMethods(CodeBuilder builder, string propertyName, string mode)
-    {
-        if (mode == "Global")
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(List<Matrix4x4> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalMatrixArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Matrix4x4[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("Shader.SetGlobalMatrixArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4[] Get").Append(propertyName).Append("()");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return Shader.GetGlobalMatrixArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-        else if (mode == "WithPropertyBlock")
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, List<Matrix4x4> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetMatrixArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock, Matrix4x4[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("propertyBlock.SetMatrixArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4[] Get").Append(propertyName).Append("(this MaterialPropertyBlock propertyBlock)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return propertyBlock.GetMatrixArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-        else // Default
-        {
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, List<Matrix4x4> values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetMatrixArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(Material material, Matrix4x4[] values)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("material.SetMatrixArray(").Append(propertyName).Append(", values);");
-                builder.AppendLine();
-            }
-            
-            builder.AppendLine();
-            builder.AppendIdent().Append("public static Matrix4x4[] Get").Append(propertyName).Append("(Material material)");
-            builder.AppendLine();
-            using (new BracketsBlock(builder))
-            {
-                builder.AppendIdent().Append("return material.GetMatrixArray(").Append(propertyName).Append(");");
-                builder.AppendLine();
-            }
-        }
-    }
-
-    private static void GenerateComputeMethods(CodeBuilder builder, PropertyToProcess property, string propertyName)
+    private static void GenerateComputeMethods(CodeBuilder builder, PropertyToProcess property, Emit p)
     {
         var type = property.Type;
-        
+
         switch (type)
         {
             case "Float":
-                GenerateComputeFloatMethods(builder, propertyName);
+                GenerateComputeFloatMethods(builder, p);
                 break;
             case "Integer":
-                GenerateComputeIntegerMethods(builder, propertyName);
+                GenerateComputeIntegerMethods(builder, p);
                 break;
             case "Bool":
-                GenerateComputeBoolMethods(builder, propertyName);
+                GenerateComputeBoolMethods(builder, p);
                 break;
             case "Color":
-                GenerateComputeColorMethods(builder, propertyName);
-                break;
             case "Vector":
-                GenerateComputeVectorMethods(builder, propertyName);
+                GenerateComputeVectorMethods(builder, p);
                 break;
             case "Matrix":
-                GenerateComputeMatrixMethods(builder, propertyName);
+                GenerateComputeMatrixMethods(builder, p);
                 break;
             case "Texture":
-                GenerateComputeTextureMethods(builder, propertyName);
+                GenerateComputeTextureMethods(builder, p);
                 break;
             case "Buffer":
-                GenerateComputeBufferMethods(builder, propertyName);
+                GenerateComputeBufferMethods(builder, p);
                 break;
             case "ConstantBuffer":
-                GenerateComputeConstantBufferMethods(builder, propertyName);
+                GenerateComputeConstantBufferMethods(builder, p);
                 break;
             // Array types are skipped for Compute mode
         }
     }
 
-    private static void GenerateComputeFloatMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeFloatMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, float value)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetFloat(").Append(propertyName).Append(", value);");
-            builder.AppendLine();
-        }
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, params float[] values)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetFloats(").Append(propertyName).Append(", values);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "float value")})", $"computeShader.SetFloat({p.Id}, value);");
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "params float[] values")})", $"computeShader.SetFloats({p.Id}, values);");
     }
 
-    private static void GenerateComputeIntegerMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeIntegerMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, int value)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetInt(").Append(propertyName).Append(", value);");
-            builder.AppendLine();
-        }
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, params int[] values)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetInts(").Append(propertyName).Append(", values);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "int value")})", $"computeShader.SetInt({p.Id}, value);");
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "params int[] values")})", $"computeShader.SetInts({p.Id}, values);");
     }
 
-    private static void GenerateComputeBoolMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeBoolMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, bool value)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetBool(").Append(propertyName).Append(", value);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "bool value")})", $"computeShader.SetBool({p.Id}, value);");
     }
 
-    private static void GenerateComputeColorMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeVectorMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, Vector4 value)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetVector(").Append(propertyName).Append(", value);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "Vector4 value")})", $"computeShader.SetVector({p.Id}, value);");
     }
 
-    private static void GenerateComputeVectorMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeMatrixMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, Vector4 value)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetVector(").Append(propertyName).Append(", value);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "Matrix4x4 value")})", $"computeShader.SetMatrix({p.Id}, value);");
     }
 
-    private static void GenerateComputeMatrixMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeTextureMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, Matrix4x4 value)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetMatrix(").Append(propertyName).Append(", value);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader, int kernelIndex", "Texture texture")})", $"computeShader.SetTexture(kernelIndex, {p.Id}, texture);");
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader, int kernelIndex", "Texture texture", "int mipLevel")})", $"computeShader.SetTexture(kernelIndex, {p.Id}, texture, mipLevel);");
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader, int kernelIndex", "RenderTexture texture", "int mipLevel", "UnityEngine.Rendering.RenderTextureSubElement element")})", $"computeShader.SetTexture(kernelIndex, {p.Id}, texture, mipLevel, element);");
+        EmitMethod(builder, $"public static void {p.Method("Set", "FromGlobal")}({p.Params("ComputeShader computeShader, int kernelIndex", "int globalTextureNameID")})", $"computeShader.SetTextureFromGlobal(kernelIndex, {p.Id}, globalTextureNameID);");
     }
 
-    private static void GenerateComputeTextureMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeBufferMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, int kernelIndex, Texture texture)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetTexture(kernelIndex, ").Append(propertyName).Append(", texture);");
-            builder.AppendLine();
-        }
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, int kernelIndex, Texture texture, int mipLevel)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetTexture(kernelIndex, ").Append(propertyName).Append(", texture, mipLevel);");
-            builder.AppendLine();
-        }
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, int kernelIndex, RenderTexture texture, int mipLevel, UnityEngine.Rendering.RenderTextureSubElement element)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetTexture(kernelIndex, ").Append(propertyName).Append(", texture, mipLevel, element);");
-            builder.AppendLine();
-        }
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("FromGlobal(ComputeShader computeShader, int kernelIndex, int globalTextureNameID)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetTextureFromGlobal(kernelIndex, ").Append(propertyName).Append(", globalTextureNameID);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader, int kernelIndex", "ComputeBuffer buffer")})", $"computeShader.SetBuffer(kernelIndex, {p.Id}, buffer);");
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader, int kernelIndex", "GraphicsBuffer buffer")})", $"computeShader.SetBuffer(kernelIndex, {p.Id}, buffer);");
     }
 
-    private static void GenerateComputeBufferMethods(CodeBuilder builder, string propertyName)
+    private static void GenerateComputeConstantBufferMethods(CodeBuilder builder, Emit p)
     {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, int kernelIndex, ComputeBuffer buffer)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetBuffer(kernelIndex, ").Append(propertyName).Append(", buffer);");
-            builder.AppendLine();
-        }
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, int kernelIndex, GraphicsBuffer buffer)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetBuffer(kernelIndex, ").Append(propertyName).Append(", buffer);");
-            builder.AppendLine();
-        }
-    }
-
-    private static void GenerateComputeConstantBufferMethods(CodeBuilder builder, string propertyName)
-    {
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, ComputeBuffer buffer, int offset, int size)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetConstantBuffer(").Append(propertyName).Append(", buffer, offset, size);");
-            builder.AppendLine();
-        }
-        
-        builder.AppendLine();
-        builder.AppendIdent().Append("public static void Set").Append(propertyName).Append("(ComputeShader computeShader, GraphicsBuffer buffer, int offset, int size)");
-        builder.AppendLine();
-        using (new BracketsBlock(builder))
-        {
-            builder.AppendIdent().Append("computeShader.SetConstantBuffer(").Append(propertyName).Append(", buffer, offset, size);");
-            builder.AppendLine();
-        }
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "ComputeBuffer buffer", "int offset", "int size")})", $"computeShader.SetConstantBuffer({p.Id}, buffer, offset, size);");
+        EmitMethod(builder, $"public static void {p.Method("Set")}({p.Params("ComputeShader computeShader", "GraphicsBuffer buffer", "int offset", "int size")})", $"computeShader.SetConstantBuffer({p.Id}, buffer, offset, size);");
     }
 }

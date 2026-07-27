@@ -220,6 +220,8 @@ Apply `[ShaderProperty]` attributes to your partial class. Each attribute define
 - `name` (string): The shader property name as it appears in the shader
 - `type` (ShaderPropertyType): The property type (Float, Integer, Bool, Color, Vector, Matrix, Texture, Buffer, ConstantBuffer, FloatArray, ColorArray, VectorArray, MatrixArray)
 - `mode` (ShaderPropertyMode, optional): Access mode - Default (Material), Global (Shader global), WithPropertyBlock (MaterialPropertyBlock extension), or Compute (ComputeShader)
+- `count` (int, optional, default `0`): Declares a numbered group of properties instead of a single one. `name` is used as the prefix and the index is appended to it, so `name: "_Fill_"` with `count: 5` generates `_Fill_1` .. `_Fill_5` , an array of their ids and indexed `...At` methods (see [Numbered property groups](#numbered-property-groups)). `0` means "not specified" — a single property is generated, exactly as without this parameter
+- `startIndex` (int, optional, default `1`): First index of a group declared with `count`. Use `startIndex: 0` for `_Fill_0` .. `_Fill_4`
 
 ```csharp
 using UnityAttributes.ShaderProperty;
@@ -245,6 +247,74 @@ var propertyBlock = new MaterialPropertyBlock();
 propertyBlock.SetMetallic(0.8f);
 float metallic = propertyBlock.GetMetallic();
 ```
+
+#### Numbered property groups
+
+Shaders often expose the same property repeated with an index suffix. Instead of one attribute per index, declare the group with `count` :
+
+```csharp
+[ShaderProperty("_Fill_", ShaderPropertyType.Float, count: 5)]
+[ShaderProperty("_SlotTexture_", ShaderPropertyType.Texture, count: 5)]
+public partial class SlotProperties
+{
+}
+
+// Every index still has its own members
+SlotProperties.SetFill3(material, 0.5f);
+
+// ...plus an ids array and ...At methods addressing it, so the group can be used in a loop
+for (var i = 0; i < SlotProperties.Fill.Length; i++)
+{
+    SlotProperties.SetFillAt(material, i, fillValues[i]);
+}
+```
+
+Every method generated for the type and mode gets an `...At` counterpart taking an `int index` right after the target (`material` / `propertyBlock` / `computeShader`), and the `At` postfix goes at the very end of the name — `SetSlotTextureOffsetAt(material, index, offset)` . In `Global` mode there is no target, so the index comes first: `SetGlowAt(index, color)` .
+
+<details>
+<summary>Generated code</summary>
+
+```csharp
+public partial class SlotProperties
+{
+    public static readonly int Fill1 = Shader.PropertyToID("_Fill_1");
+
+    public static void SetFill1(Material material, float value)
+    {
+        material.SetFloat(Fill1, value);
+    }
+
+    public static float GetFill1(Material material)
+    {
+        return material.GetFloat(Fill1);
+    }
+
+    // ... Fill2 .. Fill5 ...
+
+    public static readonly int[] Fill =
+    {
+        Fill1,
+        Fill2,
+        Fill3,
+        Fill4,
+        Fill5,
+    };
+
+    public static void SetFillAt(Material material, int index, float value)
+    {
+        material.SetFloat(Fill[index], value);
+    }
+
+    public static float GetFillAt(Material material, int index)
+    {
+        return material.GetFloat(Fill[index]);
+    }
+
+    // ... the same for SlotTexture1 .. SlotTexture5, SlotTexture and SetSlotTextureAt ...
+}
+```
+
+</details>
 
 <details>
 <summary>Generated code</summary>
